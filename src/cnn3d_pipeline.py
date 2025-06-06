@@ -171,7 +171,7 @@ class CNN3DGlobalPipeline:
         actuals_np = masked_actuals.flatten().cpu().numpy()
         preds_np = masked_preds.flatten().cpu().numpy()
 
-        rmse = mean_squared_error(actuals_np, preds_np, squared=False)
+        rmse = mean_squared_error(actuals_np, preds_np)
         mae = mean_absolute_error(actuals_np, preds_np)
         r2 = r2_score(actuals_np, preds_np)
         return {'rmse': rmse, 'mae': mae, 'r2': r2}
