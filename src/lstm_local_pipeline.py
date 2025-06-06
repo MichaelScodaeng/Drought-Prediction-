@@ -128,7 +128,7 @@ class LSTMPyTorchLightningLocalPipeline:
         print(f"Pipeline: Found {len(self.unique_locations)} unique locations."); return True
 
     def _calculate_metrics(self, actuals, predictions): # (Same as before)
-        rmse = mean_squared_error(actuals, predictions, squared=False); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
+        rmse = mean_squared_error(actuals, predictions); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
         return {'rmse': rmse, 'mae': mae, 'r2': r2}
 
     def _objective_for_optuna(self, trial, train_loader, val_loader, n_features, n_steps_in, n_steps_out):
