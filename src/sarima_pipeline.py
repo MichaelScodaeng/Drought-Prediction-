@@ -241,7 +241,6 @@ class SarimaLocalPipeline:
             metrics = self._process_location(loc_coords, location_data_df)
             if metrics:
                 self.all_location_metrics.append(metrics)
-            break  # For debugging, remove in production
         
         self._save_aggregated_metrics()
         print(f"--- SARIMA Local Pipeline Run Finished ---")
