@@ -2,8 +2,8 @@
 # Configuration file for the grid-based CNN3D model
 
 project_setup:
-  experiment_name: "SPEI_CNN3D_Global_Run"
-  target_variable: "spei"
+  experiment_name: "PET_CNN3D_Global_Run"
+  target_variable: "pet"
   random_seed: 42
 
 data:
@@ -36,7 +36,7 @@ cnn3d_params:
   batch_size: 16      # Batch size for training. Keep this smaller for 3D models due to memory usage.
 
   trainer:
-    max_epochs: 2
+    max_epochs: 100
     patience_for_early_stopping: 5
     accelerator: "auto"
     enable_progress_bar: True
