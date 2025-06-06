@@ -36,7 +36,7 @@ cnn3d_params:
   batch_size: 16      # Batch size for training. Keep this smaller for 3D models due to memory usage.
 
   trainer:
-    max_epochs: 100
+    max_epochs: 300
     patience_for_early_stopping: 5
     accelerator: "auto"
     enable_progress_bar: True
