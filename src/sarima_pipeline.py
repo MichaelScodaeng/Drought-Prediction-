@@ -91,7 +91,7 @@ class SarimaLocalPipeline:
             suppress_warnings=True, 
             stepwise=True,
             n_jobs=-1,  # Use all available cores
-            maxiter = 2     
+            maxiter = 10 # Limit iterations for faster debugging
         )
         return model
 
