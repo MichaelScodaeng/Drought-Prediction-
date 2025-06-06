@@ -40,7 +40,7 @@ class LSTMRegressor(nn.Module):
         lstm_out, _ = self.lstm(x); last_time_step_out = lstm_out[:, -1, :]; out = self.fc(last_time_step_out)
         return out
 
-# --- PyTorch Lightning Module (MODIFIED FOR OPTUNA INTEGRATION & PREDICTION) ---
+# --- PyTorch Lightning Module (MODIFIED FOR OPTUNA INTEGRATION) ---
 class LSTMLightningModule(pl.LightningModule):
     def __init__(self, model, learning_rate, trial=None): # Added trial as an optional parameter
         super().__init__()
@@ -63,14 +63,7 @@ class LSTMLightningModule(pl.LightningModule):
         self.validation_step_outputs.append(loss)
         return loss
     
-    # --- NEW METHOD to fix prediction error ---
-    def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        # The batch from DataLoader is a list [features, targets]
-        # We only need the features for prediction.
-        x, y = batch # Unpack the batch
-        return self(x) # Call forward with only the features tensor
-    # --- END NEW METHOD ---
-
+    # MODIFIED: on_validation_epoch_end now handles pruning
     def on_validation_epoch_end(self):
         if not self.validation_step_outputs: return
 
@@ -131,23 +124,36 @@ class LSTMPyTorchLightningLocalPipeline:
         rmse = mean_squared_error(actuals, predictions, squared=False); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
         return {'rmse': rmse, 'mae': mae, 'r2': r2}
 
+    # MODIFIED: _objective_for_optuna
     def _objective_for_optuna(self, trial, train_loader, val_loader, n_features, n_steps_in, n_steps_out):
-        # (This objective function remains the same as it's generic)
+        """Optuna objective function integrated with PyTorch Lightning."""
         lstm_tuning_cfg = self.cfg.get('lstm_params', {}).get('tuning', {})
         n_layers = trial.suggest_int('n_layers', **lstm_tuning_cfg.get('n_layers', {'low':1, 'high':3}))
         hidden_size = trial.suggest_int('hidden_size', **lstm_tuning_cfg.get('hidden_size', {'low':32, 'high':128, 'step':16}))
         dropout_rate = trial.suggest_float('dropout_rate', **lstm_tuning_cfg.get('dropout_rate', {'low':0.1, 'high':0.5}))
         learning_rate = trial.suggest_float('learning_rate', **lstm_tuning_cfg.get('learning_rate', {'low':1e-4, 'high':1e-2, 'log':True}))
+
         model = LSTMRegressor(n_features, hidden_size, n_layers, n_steps_out, dropout_rate)
+        # Pass the trial object to the LightningModule
         lightning_model = LSTMLightningModule(model, learning_rate, trial=trial)
+
+        # REMOVED: PyTorchLightningPruningCallback is no longer needed
         early_stopping_callback = EarlyStopping(monitor="val_loss", patience=self.cfg.get('lstm_params',{}).get('trainer',{}).get('patience_for_early_stopping', 5))
+        
         trainer_params = self.cfg.get('lstm_params', {}).get('trainer', {})
-        trainer = pl.Trainer(max_epochs=trainer_params.get('max_epochs', 50), callbacks=[early_stopping_callback], logger=False,
-            enable_checkpointing=False, enable_progress_bar=trainer_params.get('enable_progress_bar', False), accelerator=trainer_params.get('accelerator', 'auto'), devices=1)
+        trainer = pl.Trainer(
+            max_epochs=trainer_params.get('max_epochs', 50),
+            callbacks=[early_stopping_callback], # Only early stopping is needed here
+            logger=False, enable_checkpointing=False, enable_progress_bar=trainer_params.get('enable_progress_bar', False),
+            accelerator=trainer_params.get('accelerator', 'auto'), devices=1,
+        )
+        
         try:
             trainer.fit(model=lightning_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         except optuna.exceptions.TrialPruned:
+            # Handle the pruning exception gracefully
             return float('inf')
+        
         return trainer.callback_metrics.get("val_loss", torch.tensor(float('inf'))).item()
 
     def _process_location(self, location_coords, location_data):
@@ -155,6 +161,7 @@ class LSTMPyTorchLightningLocalPipeline:
         lat, lon = location_coords; loc_identifier = f"lat{lat}_lon{lon}"
         print(f"\n--- Processing Location: {loc_identifier} ---")
 
+        # 1. Prep data (same)
         train_df_raw, val_df_raw, test_df_raw = split_data_chronologically(location_data.copy(), self.cfg)
         if train_df_raw is None or train_df_raw.empty: return None
         train_df_featured = engineer_features(train_df_raw.copy(), self.cfg); val_df_featured = engineer_features(val_df_raw.copy(), self.cfg); test_df_featured = engineer_features(test_df_raw.copy(), self.cfg)
@@ -162,6 +169,7 @@ class LSTMPyTorchLightningLocalPipeline:
         scaled_train_df, scaled_val_df, scaled_test_df, fitted_scaler = scale_data(train_df_featured, val_df_featured, test_df_featured, self.cfg)
         if fitted_scaler is None: return None
 
+        # 2. Create sequences and DataLoaders (same)
         target_col = self.cfg['project_setup']['target_variable']
         cols_to_drop = [self.cfg['data']['time_column'], self.cfg['data']['lat_column'], self.cfg['data']['lon_column']]
         X_train_flat = scaled_train_df.drop(columns=cols_to_drop, errors='ignore'); y_train_flat = X_train_flat.pop(target_col)
@@ -181,6 +189,7 @@ class LSTMPyTorchLightningLocalPipeline:
         val_loader = DataLoader(TensorDataset(X_val_seq, y_val_seq), batch_size=batch_size)
         test_loader = DataLoader(TensorDataset(X_test_seq, y_test_seq), batch_size=batch_size) 
         
+        # 3. Hyperparameter Tuning with Optuna (same call)
         n_features = X_train_seq.shape[2]
         n_trials = self.cfg.get('lstm_params', {}).get('tuning', {}).get('n_trials', 15)
         print(f"  Starting Optuna hyperparameter optimization for {n_trials} trials...")
@@ -189,6 +198,7 @@ class LSTMPyTorchLightningLocalPipeline:
         best_hyperparams = study.best_trial.params
         print(f"  Optuna found best params: {best_hyperparams}")
 
+        # 4. Train Final Model (The LightningModule for the final model does NOT need the trial object)
         print("  Training final model with best hyperparameters...")
         final_model_base = LSTMRegressor(n_features, best_hyperparams['hidden_size'], best_hyperparams['n_layers'], n_steps_out, best_hyperparams['dropout_rate'])
         final_lightning_model = LSTMLightningModule(final_model_base, best_hyperparams['learning_rate'])
@@ -208,6 +218,7 @@ class LSTMPyTorchLightningLocalPipeline:
         
         best_lightning_model = LSTMLightningModule.load_from_checkpoint(best_model_path, model=final_lightning_model.model, learning_rate=final_lightning_model.learning_rate)
         
+        # 5. Final Evaluation and Saving (same as before)
         location_metrics_summary = {'location': loc_identifier, 'lat': lat, 'lon': lon, 'best_params': best_hyperparams}
         best_lightning_model.eval();
         with torch.no_grad():
@@ -226,8 +237,8 @@ class LSTMPyTorchLightningLocalPipeline:
 
         return location_metrics_summary
 
+    # ... The rest of the methods (_predict_and_save_full_for_location, run_pipeline, _save_aggregated_metrics) remain the same ...
     def _predict_and_save_full_for_location(self, location_data_raw_df, loc_identifier, model, scaler):
-        # (This method remains the same)
         print(f"  Generating full predictions for {loc_identifier}..."); full_featured_df = engineer_features(location_data_raw_df.copy(), self.cfg)
         if full_featured_df.empty: return
         target_col = self.cfg['project_setup']['target_variable']; cols_to_scale = [target_col] + self.cfg.get('data', {}).get('predictor_columns', [])
@@ -247,9 +258,7 @@ class LSTMPyTorchLightningLocalPipeline:
         filename_suffix = self.cfg.get('results',{}).get('per_location_prediction_filename_suffix', '_full_pred.csv')
         save_path = os.path.join(self.per_location_predictions_output_dir, f"{loc_identifier}{filename_suffix}")
         output_df[cols_to_save].to_csv(save_path, index=False); print(f"    Full predictions for {loc_identifier} saved.")
-    
     def run_pipeline(self):
-        # (This method remains the same)
         if not PYTORCH_AVAILABLE: print("Cannot run LSTM pipeline."); return "Failed: PyTorch/Lightning/Optuna not found."
         print(f"\n--- Starting LSTM PyTorch Lightning Local Pipeline ---");
         if not self._load_full_data(): print("Pipeline Halted: Failed at data loading."); return "Failed: Data Load"
@@ -263,9 +272,7 @@ class LSTMPyTorchLightningLocalPipeline:
         self._save_aggregated_metrics()
         print(f"--- LSTM PyTorch Lightning Local Pipeline Run Finished ---")
         return self.all_location_metrics
-    
     def _save_aggregated_metrics(self):
-        # (This method remains the same)
         if not self.all_location_metrics: return
         metrics_filename = self.cfg.get('results',{}).get('metrics_filename', 'lstm_pytorch_local_metrics.json')
         metrics_save_path = os.path.join(self.run_output_dir, metrics_filename)

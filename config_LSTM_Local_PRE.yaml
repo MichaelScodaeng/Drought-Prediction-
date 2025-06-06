@@ -2,8 +2,8 @@
 # Configuration file for the LSTMPyTorchLightningLocalPipeline
 
 project_setup:
-  experiment_name: "SPEI_LSTM_Local_Run"  # Base name for the experiment; "_lstm_local" will be appended by the pipeline script for the output folder.
-  target_variable: "spei"
+  experiment_name: "PRE_LSTM_Local_Run"  # Base name for the experiment; "_lstm_local" will be appended by the pipeline script for the output folder.
+  target_variable: "pre"
   random_seed: 42
 
 data:
