@@ -42,7 +42,7 @@ lstm_params:
   
   # Optuna Hyperparameter Tuning settings
   tuning:
-    n_trials: 2  # Number of hyperparameter combinations to try for each location
+    n_trials: 20  # Number of hyperparameter combinations to try for each location
     # --- Search space for each hyperparameter ---
     learning_rate:
       low: 1.0e-4
