@@ -7,20 +7,14 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import warnings
 import matplotlib.pyplot as plt
 
-# --- Helper function to convert numpy types to python types for JSON serialization ---
+# --- Helper function for JSON serialization ---
 def _to_python_type(obj):
-    if isinstance(obj, dict):
-        return {k: _to_python_type(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_to_python_type(i) for i in obj]
-    elif isinstance(obj, (np.integer, np.int32, np.int64)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, np.float32, np.float64)):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    else:
-        return obj
+    if isinstance(obj, dict): return {k: _to_python_type(v) for k, v in obj.items()}
+    elif isinstance(obj, list): return [_to_python_type(i) for i in obj]
+    elif isinstance(obj, (np.integer, np.int64)): return int(obj)
+    elif isinstance(obj, (np.floating, np.float64)): return float(obj)
+    elif isinstance(obj, np.ndarray): return obj.tolist()
+    else: return obj
 
 # --- Deep Learning & Tuning Imports ---
 try:
@@ -39,98 +33,83 @@ except ImportError:
 # --- Utility Function Imports ---
 try:
     from src.data_utils import load_config, load_and_prepare_data
-    from src.grid_utils import create_gridded_data # Import our new gridding utility
+    from src.grid_utils import create_gridded_data
     print("CNN3D Pipeline: Successfully imported utility functions.")
 except ImportError as e:
     print(f"CNN3D Pipeline Error: Could not import utility functions: {e}")
 
-# --- PyTorch CNN3D Model Definition (MODIFIED TO PREDICT A GRID) ---
+# --- PyTorch CNN3D Model Definition (ARCHITECTURE CORRECTED) ---
 class CNN3DRegressor(nn.Module):
-    def __init__(self, in_channels, n_steps_out, n_conv_layers, out_channels, kernel_size):
+    def __init__(self, in_channels, grid_h, grid_w, n_steps_in, n_steps_out, n_conv_layers, out_channels, kernel_size, dropout_rate):
         super(CNN3DRegressor, self).__init__()
         
         layers = []
         current_channels = in_channels
         
+        # Convolutional layers
         for i in range(n_conv_layers):
             layers.append(nn.Conv3d(in_channels=current_channels, out_channels=out_channels, kernel_size=kernel_size, padding='same'))
             layers.append(nn.ReLU())
             current_channels = out_channels
         
-        layers.append(nn.Conv3d(in_channels=current_channels, out_channels=n_steps_out, kernel_size=(1, 1, 1)))
-
         self.conv_block = nn.Sequential(*layers)
+        
+        # Calculate the size of the flattened features after the conv block
+        # The input to the linear layers depends on the final number of channels, sequence length, and grid size.
+        # Since padding='same', the spatial and temporal dimensions don't change through convolutions.
+        flattened_size = current_channels * n_steps_in * grid_h * grid_w
+        
+        # Fully connected layers to produce the final output grid
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(flattened_size, flattened_size // 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(flattened_size // 4, n_steps_out * grid_h * grid_w) # Predict all pixels for the output grid
+        )
+        
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.n_steps_out = n_steps_out
 
     def forward(self, x):
         # Input x shape: (N, C_in, D, H, W)
-        out = self.conv_block(x)
-        # Output shape: (N, C_out, D, H, W) -> We want (N, C_out, H, W) from last time step
-        return out[:, :, -1, :, :] 
+        x = self.conv_block(x)
+        x = self.fc(x)
+        # Reshape the flat output back into a grid: (N, C_out, H, W) where C_out = n_steps_out
+        out = x.view(-1, self.n_steps_out, self.grid_h, self.grid_w)
+        return out
 
-# --- Lightning Module with Masked Loss (MODIFIED FOR GRID PREDICTIONS) ---
+# --- Lightning Module with Masked Loss ---
 class GridModelLightningModule(pl.LightningModule):
     def __init__(self, model, learning_rate, mask, trial=None):
-        super().__init__()
-        self.model = model
-        self.learning_rate = learning_rate
-        self.trial = trial
-        self.criterion = nn.MSELoss(reduction='none') 
-        self.register_buffer('mask', mask) 
-        self.validation_step_outputs = []
-
-    def forward(self, x):
-        return self.model(x)
-
+        super().__init__(); self.model = model; self.learning_rate = learning_rate
+        self.trial = trial; self.criterion = nn.MSELoss(reduction='none'); self.register_buffer('mask', mask); self.validation_step_outputs = []
+    def forward(self, x): return self.model(x)
     def _calculate_masked_loss(self, y_hat, y):
-        # y_hat has shape (N, 1, H, W), y has shape (N, H, W)
-        # Squeeze y_hat to match y's dimensions for loss calculation
-        if y_hat.shape[1] == 1:
-            y_hat = y_hat.squeeze(1)
-
-        loss = self.criterion(y_hat, y)
-        masked_loss = loss * self.mask
-        mean_masked_loss = masked_loss.sum() / (self.mask.sum() * y.size(0) + 1e-9)
-        return mean_masked_loss
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch; y_hat = self(x); loss = self._calculate_masked_loss(y_hat, y)
-        self.log('train_loss', loss); return loss
-
-    def validation_step(self, batch, batch_idx):
-        x, y = batch; y_hat = self(x); loss = self._calculate_masked_loss(y_hat, y)
-        self.log('val_loss', loss, on_epoch=True, prog_bar=True); self.validation_step_outputs.append(loss); return loss
-        
-    def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x, y = batch; return self(x)
-
+        if y_hat.shape[1] == 1: y_hat = y_hat.squeeze(1)
+        loss = self.criterion(y_hat, y); masked_loss = loss * self.mask
+        return masked_loss.sum() / (self.mask.sum() * y.size(0) + 1e-9)
+    def training_step(self, batch, batch_idx): x, y = batch; y_hat = self(x); return self._calculate_masked_loss(y_hat, y)
+    def validation_step(self, batch, batch_idx): x, y = batch; loss = self._calculate_masked_loss(self(x), y); self.log('val_loss', loss, on_epoch=True); self.validation_step_outputs.append(loss); return loss
+    def predict_step(self, batch, batch_idx, dataloader_idx=0): x, y = batch; return self(x)
     def on_validation_epoch_end(self):
         if not self.validation_step_outputs: return
-        avg_loss = torch.stack(self.validation_step_outputs).mean()
-        self.log('val_rmse', torch.sqrt(avg_loss)); self.validation_step_outputs.clear()
+        avg_loss = torch.stack(self.validation_step_outputs).mean(); self.log('val_rmse', torch.sqrt(avg_loss)); self.validation_step_outputs.clear()
         if self.trial: self.trial.report(avg_loss, self.current_epoch);
         if self.trial and self.trial.should_prune(): raise optuna.exceptions.TrialPruned()
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    def configure_optimizers(self): return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
 # --- Custom Dataset for 3D Gridded Data ---
 class SequenceDataset3D(Dataset):
     def __init__(self, gridded_data, target_feature_idx, n_steps_in, n_steps_out=1):
         self.data = torch.tensor(gridded_data, dtype=torch.float32).permute(0, 3, 1, 2)
-        self.target_feature_idx = target_feature_idx
-        self.n_steps_in = n_steps_in
-        self.n_steps_out = n_steps_out
-    
-    def __len__(self):
-        return self.data.shape[0] - self.n_steps_in - self.n_steps_out + 1
-
+        self.target_feature_idx = target_feature_idx; self.n_steps_in = n_steps_in; self.n_steps_out = n_steps_out
+    def __len__(self): return self.data.shape[0] - self.n_steps_in - self.n_steps_out + 1
     def __getitem__(self, idx):
-        end_idx = idx + self.n_steps_in
-        out_end_idx = end_idx + self.n_steps_out
-        seq_x = self.data[idx:end_idx].permute(1, 0, 2, 3)
-        seq_y = self.data[end_idx:out_end_idx, self.target_feature_idx, :, :]
-        if self.n_steps_out == 1:
-            return seq_x, seq_y.squeeze(0)
+        end_idx = idx + self.n_steps_in; out_end_idx = end_idx + self.n_steps_out
+        seq_x = self.data[idx:end_idx].permute(1, 0, 2, 3); seq_y = self.data[end_idx:out_end_idx, self.target_feature_idx, :, :]
+        if self.n_steps_out == 1: return seq_x, seq_y.squeeze(0)
         return seq_x, seq_y
 
 # --- Main Pipeline Class ---
@@ -150,44 +129,22 @@ class CNN3DGlobalPipeline:
         return os.path.abspath(os.path.join(self.project_root_for_paths, relative_path))
 
     def _calculate_masked_metrics(self, actuals, predictions, mask):
-        # actuals and predictions are tensors of shape (N, H, W)
-        mask_bool = mask.bool().to(actuals.device) # Ensure mask is on same device
-        
-        # Ensure predictions have the same shape as actuals if necessary
-        if predictions.ndim == 4 and predictions.shape[1] == 1:
-            predictions = predictions.squeeze(1)
-
-        # Handle potential length mismatch from DataLoader
-        min_len = min(len(actuals), len(predictions))
-        actuals, predictions = actuals[:min_len], predictions[:min_len]
-        
-        # Expand mask to match batch dimension
+        mask_bool = mask.bool().to(actuals.device); min_len = min(len(actuals), len(predictions)); actuals, predictions = actuals[:min_len], predictions[:min_len]
+        if predictions.ndim == 4 and predictions.shape[1] == 1: predictions = predictions.squeeze(1)
         batch_mask = mask_bool.expand_as(actuals)
-        
-        masked_actuals = actuals[batch_mask]
-        masked_preds = predictions[batch_mask]
-        
-        # Move to CPU and convert to numpy for sklearn metrics
-        actuals_np = masked_actuals.flatten().cpu().numpy()
-        preds_np = masked_preds.flatten().cpu().numpy()
+        actuals_np = actuals[batch_mask].flatten().cpu().numpy(); preds_np = predictions[batch_mask].flatten().cpu().numpy()
+        return {'rmse': mean_squared_error(actuals_np, preds_np, squared=False), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
 
-        rmse = mean_squared_error(actuals_np, preds_np)
-        mae = mean_absolute_error(actuals_np, preds_np)
-        r2 = r2_score(actuals_np, preds_np)
-        return {'rmse': rmse, 'mae': mae, 'r2': r2}
-
-    def _objective_for_optuna(self, trial, train_loader, val_loader, in_channels, n_steps_out):
+    def _objective_for_optuna(self, trial, train_loader, val_loader, in_channels, grid_h, grid_w, n_steps_in, n_steps_out):
         cnn_tuning_cfg = self.cfg.get('cnn3d_params', {}).get('tuning', {})
         learning_rate = trial.suggest_float('learning_rate', **cnn_tuning_cfg.get('learning_rate'))
         n_conv_layers = trial.suggest_int('n_conv_layers', **cnn_tuning_cfg.get('n_conv_layers'))
         out_channels_power = trial.suggest_int('out_channels_power', **cnn_tuning_cfg.get('out_channels_power'))
         out_channels = 2**out_channels_power
-        # For 3D conv, kernel size should be a tuple (D, H, W)
-        k_d = trial.suggest_categorical('kernel_size_d', cnn_tuning_cfg.get('kernel_size_d', {}).get('choices', [3]))
-        k_h = trial.suggest_categorical('kernel_size_h', cnn_tuning_cfg.get('kernel_size_h', {}).get('choices', [3]))
-        k_w = trial.suggest_categorical('kernel_size_w', cnn_tuning_cfg.get('kernel_size_w', {}).get('choices', [3]))
+        k_d = trial.suggest_categorical('kernel_size_d', cnn_tuning_cfg.get('kernel_size_d', {}).get('choices', [3])); k_h = trial.suggest_categorical('kernel_size_h', cnn_tuning_cfg.get('kernel_size_h', {}).get('choices', [3])); k_w = trial.suggest_categorical('kernel_size_w', cnn_tuning_cfg.get('kernel_size_w', {}).get('choices', [3]))
+        dropout_rate = trial.suggest_float('dropout_rate', **cnn_tuning_cfg.get('dropout_rate', {'low': 0.2, 'high': 0.5}))
         
-        model = CNN3DRegressor(in_channels, n_steps_out, n_conv_layers, out_channels, (k_d, k_h, k_w))
+        model = CNN3DRegressor(in_channels, grid_h, grid_w, n_steps_in, n_steps_out, n_conv_layers, out_channels, (k_d, k_h, k_w), dropout_rate)
         lightning_model = GridModelLightningModule(model, learning_rate, self.mask, trial=trial)
         
         trainer_params = self.cfg.get('cnn3d_params', {}).get('trainer', {})
@@ -212,8 +169,9 @@ class CNN3DGlobalPipeline:
         self.gridded_data, mask = create_gridded_data(full_df_raw, self.cfg)
         self.mask = torch.tensor(mask, dtype=torch.float32)
 
-        print("Pipeline: Splitting gridded data...")
-        time_steps = full_df_raw[self.cfg['data']['time_column']].unique()
+        grid_h, grid_w = self.gridded_data.shape[1], self.gridded_data.shape[2]
+
+        print("Pipeline: Splitting gridded data..."); time_steps = full_df_raw[self.cfg['data']['time_column']].unique()
         train_end_idx = np.where(time_steps <= np.datetime64(self.cfg['data']['train_end_date']))[0][-1]
         val_end_idx = np.where(time_steps <= np.datetime64(self.cfg['data']['validation_end_date']))[0][-1]
         train_data_grid = self.gridded_data[:train_end_idx + 1]; val_data_grid = self.gridded_data[train_end_idx + 1 : val_end_idx + 1]; test_data_grid = self.gridded_data[val_end_idx + 1 :]
@@ -235,13 +193,12 @@ class CNN3DGlobalPipeline:
         in_channels = len(self.cfg['data']['features_to_grid'])
         n_trials = self.cfg.get('cnn3d_params', {}).get('tuning', {}).get('n_trials', 15)
         study = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner())
-        study.optimize(lambda trial: self._objective_for_optuna(trial, train_loader, val_loader, in_channels, n_steps_out), n_trials=n_trials)
-        best_hyperparams = study.best_trial.params
-        print(f"Pipeline: Optuna found best params: {best_hyperparams}")
+        study.optimize(lambda trial: self._objective_for_optuna(trial, train_loader, val_loader, in_channels, grid_h, grid_w, n_steps_in, n_steps_out), n_trials=n_trials)
+        self.best_hyperparams = study.best_trial.params
+        print(f"Pipeline: Optuna found best params: {self.best_hyperparams}")
 
-        print("Pipeline: Training final model...")
-        best = best_hyperparams
-        final_model_base = CNN3DRegressor(in_channels, n_steps_out, best['n_conv_layers'], 2**best['out_channels_power'], (best['kernel_size_d'],best['kernel_size_h'],best['kernel_size_w']))
+        print("Pipeline: Training final model..."); best = self.best_hyperparams
+        final_model_base = CNN3DRegressor(in_channels, grid_h, grid_w, n_steps_in, n_steps_out, best['n_conv_layers'], 2**best['out_channels_power'], (best['kernel_size_d'],best['kernel_size_h'],best['kernel_size_w']), best['dropout_rate'])
         final_lightning_model = GridModelLightningModule(final_model_base, best['learning_rate'], self.mask)
         full_train_loader = DataLoader(torch.utils.data.ConcatDataset([train_dataset, val_dataset]), batch_size=batch_size, shuffle=True, num_workers=num_workers)
         checkpoint_callback = ModelCheckpoint(dirpath=self.run_models_dir, filename="global-cnn3d-best-model", monitor="val_loss", mode="min")
@@ -257,9 +214,10 @@ class CNN3DGlobalPipeline:
         print("--- CNN3D Global Pipeline Run Finished ---")
         return self.all_metrics
     
+    # ... other methods like evaluate_and_save and predict_on_full_data would be here ...
+    # (These are kept the same as the previous version for brevity)
     def evaluate_and_save(self, trainer, train_dataset, val_dataset, test_dataset):
-        print("\n--- Final Model Evaluation ---")
-        self.all_metrics = {}
+        print("\n--- Final Model Evaluation ---"); self.all_metrics = {}
         self.model.eval()
         with torch.no_grad():
             for split_name, dataset in [('train', train_dataset), ('validation', val_dataset), ('test', test_dataset)]:
@@ -268,34 +226,18 @@ class CNN3DGlobalPipeline:
                     y_actual_list = [y for _, y in loader]
                     scaled_preds_list = trainer.predict(self.model, dataloaders=loader)
                     y_actual_grid = torch.cat(y_actual_list).cpu(); scaled_preds_grid = torch.cat(scaled_preds_list).cpu()
-                    
                     metrics = self._calculate_masked_metrics(y_actual_grid, scaled_preds_grid, self.mask)
                     self.all_metrics[split_name] = metrics
                     print(f"  {split_name.capitalize()} Set: RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}, R2={metrics['r2']:.4f}")
-        
         metrics_filename = self.cfg.get('results',{}).get('metrics_filename', 'global_cnn3d_metrics.json')
         with open(os.path.join(self.run_output_dir, metrics_filename), 'w') as f:
             json.dump(_to_python_type(self.all_metrics), f, indent=4)
         print(f"Pipeline: Evaluation metrics saved.")
     
     def predict_on_full_data(self):
-        print("\nPipeline: Generating predictions on the full raw dataset...")
+        print("\nPipeline: Generating predictions on the full raw dataset...");
         if self.model is None or self.gridded_data is None: return None
-        
-        # --- FIX START: Add row_idx and col_idx to the prediction dataframe ---
-        if 'row_idx' not in self.full_df_raw_for_prediction.columns or 'col_idx' not in self.full_df_raw_for_prediction.columns:
-            print("  Re-calculating grid indices for prediction dataframe...")
-            data_cfg = self.cfg.get('data', {})
-            grid_cfg = self.cfg.get('gridding', {})
-            lat_col, lon_col = data_cfg.get('lat_column', 'lat'), data_cfg.get('lon_column', 'lon')
-            fixed_step = grid_cfg.get('fixed_step', 0.5)
-            lat_min, lon_min = self.full_df_raw_for_prediction[lat_col].min(), self.full_df_raw_for_prediction[lon_col].min()
-            self.full_df_raw_for_prediction['row_idx'] = ((self.full_df_raw_for_prediction[lat_col] - lat_min) / fixed_step).round().astype(int)
-            self.full_df_raw_for_prediction['col_idx'] = ((self.full_df_raw_for_prediction[lon_col] - lon_min) / fixed_step).round().astype(int)
-        # --- FIX END ---
-        
-        target_col = self.cfg['project_setup']['target_variable']
-        target_idx = self.cfg['data']['features_to_grid'].index(target_col)
+        target_col = self.cfg['project_setup']['target_variable']; target_idx = self.cfg['data']['features_to_grid'].index(target_col)
         seq_params = self.cfg.get('sequence_params', {}); n_steps_in = seq_params.get('n_steps_in', 12); n_steps_out = seq_params.get('n_steps_out', 1)
 
         full_dataset = SequenceDataset3D(self.gridded_data, target_idx, n_steps_in, n_steps_out)
@@ -318,27 +260,25 @@ class CNN3DGlobalPipeline:
         output_records = []
         valid_pixel_indices = np.argwhere(self.mask.cpu().numpy() == 1)
         
+        if 'row_idx' not in self.full_df_raw_for_prediction.columns:
+            grid_cfg = self.cfg.get('gridding', {}); fixed_step = grid_cfg.get('fixed_step', 0.5)
+            lat_min = self.full_df_raw_for_prediction[self.cfg['data']['lat_column']].min(); lon_min = self.full_df_raw_for_prediction[self.cfg['data']['lon_column']].min()
+            self.full_df_raw_for_prediction['row_idx'] = ((self.full_df_raw_for_prediction[self.cfg['data']['lat_column']] - lat_min) / fixed_step).round().astype(int)
+            self.full_df_raw_for_prediction['col_idx'] = ((self.full_df_raw_for_prediction[self.cfg['data']['lon_column']] - lon_min) / fixed_step).round().astype(int)
+        
         cell_to_coord = self.full_df_raw_for_prediction[['row_idx','col_idx','lat','lon']].drop_duplicates().set_index(['row_idx','col_idx'])
 
         for i, t in enumerate(prediction_times):
             pred_grid = predicted_grids[i]
             actual_grid = self.gridded_data[pred_start_time_idx + i, :, :, target_idx]
             for r, c in valid_pixel_indices:
-                try:
-                    coords = cell_to_coord.loc[(r,c)]
-                    lat, lon = coords.lat, coords.lon
-                except KeyError:
-                    # This cell is in the mask but might not have a corresponding original point (e.g., from morphological closing)
-                    # We can skip it or estimate lat/lon
-                    continue
-
+                try: coords = cell_to_coord.loc[(r,c)]; lat, lon = coords.lat, coords.lon
+                except KeyError: continue
                 actual_value_row = self.full_df_raw_for_prediction[
                     (self.full_df_raw_for_prediction[self.cfg['data']['time_column']] == t) &
                     (self.full_df_raw_for_prediction['lat'] == lat) &
-                    (self.full_df_raw_for_prediction['lon'] == lon)
-                ]
+                    (self.full_df_raw_for_prediction['lon'] == lon)]
                 actual_value = actual_value_row[target_col].values[0] if not actual_value_row.empty else np.nan
-
                 output_records.append({
                     'time': t, 'lat': lat, 'lon': lon,
                     target_col: actual_value,
