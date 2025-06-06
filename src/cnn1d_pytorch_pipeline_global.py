@@ -82,18 +82,14 @@ class SequenceModelLightningModule(pl.LightningModule):
         if self.trial and self.trial.should_prune(): raise optuna.exceptions.TrialPruned()
     def configure_optimizers(self): return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
-# --- Sequence Dataset (MODIFIED) ---
+# --- Sequence Dataset (same as for LSTM pipeline) ---
 class SequenceDataset(Dataset):
     def __init__(self, features_df, target_series, group_by_cols, n_steps_in, n_steps_out=1):
         self.features_np = torch.tensor(features_df.drop(columns=group_by_cols).values, dtype=torch.float32)
-        
-        # --- FIX: Ensure target is always a 2D tensor ---
         target_vals = target_series.values
         if target_vals.ndim == 1:
-            target_vals = target_vals.reshape(-1, 1) # Reshape 1D array to 2D
+            target_vals = target_vals.reshape(-1, 1)
         self.target_np = torch.tensor(target_vals, dtype=torch.float32)
-        # --- END FIX ---
-
         self.n_steps_in = n_steps_in; self.n_steps_out = n_steps_out; self.indices = []
         group_ids = features_df[group_by_cols].apply(tuple, axis=1)
         group_change_indices = np.where(group_ids.values[:-1] != group_ids.values[1:])[0] + 1
@@ -102,22 +98,12 @@ class SequenceDataset(Dataset):
         for start, end in zip(group_starts, group_ends):
             num_sequences = (end - start) - n_steps_in - n_steps_out + 1
             if num_sequences > 0: self.indices.extend(range(start, start + num_sequences))
-
     def __len__(self): return len(self.indices)
-    
     def __getitem__(self, idx):
         start_pos = self.indices[idx]; end_pos = start_pos + self.n_steps_in; out_end_pos = end_pos + self.n_steps_out
-        seq_x = self.features_np[start_pos:end_pos]
-        seq_y = self.target_np[end_pos:out_end_pos]
-
-        # --- FIX: Ensure output shape is consistent ---
-        # If n_steps_out is 1, seq_y will have shape [1, 1]. Squeeze it to [1]
-        # to match the model's final linear layer output shape of [batch_size, 1]
-        # when the dataloader batches it.
+        seq_x = self.features_np[start_pos:end_pos]; seq_y = self.target_np[end_pos:out_end_pos]
         if self.n_steps_out == 1:
             return seq_x, seq_y.squeeze(0)
-        # --- END FIX ---
-        
         return seq_x, seq_y
 
 # --- GLOBAL CNN1D PIPELINE CLASS ---
@@ -133,13 +119,13 @@ class CNN1DGlobalPipeline:
         self.run_models_dir = os.path.join(self.project_root_for_paths, models_base_dir_cfg, self.experiment_name)
         os.makedirs(self.run_output_dir, exist_ok=True); os.makedirs(self.run_models_dir, exist_ok=True)
         print(f"Pipeline artifacts will be saved under '{self.run_output_dir}' and '{self.run_models_dir}'")
-        self.scaler = None; self.model = None; self.all_metrics = {}
+        self.scaler = None; self.model = None; self.all_metrics = {}; self.full_df_raw_for_prediction = None
 
     def _get_abs_path_from_config_value(self, relative_path): # (Helper function)
         if not relative_path or os.path.isabs(relative_path): return relative_path
         return os.path.abspath(os.path.join(self.project_root_for_paths, relative_path))
     def _calculate_metrics(self, actuals, predictions): # (Helper function)
-        rmse = mean_squared_error(actuals, predictions, squared=False); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
+        rmse = mean_squared_error(actuals, predictions); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
         return {'rmse': rmse, 'mae': mae, 'r2': r2}
 
     def _objective_for_optuna(self, trial, train_loader, val_loader, n_features, n_steps_in, n_steps_out):
@@ -167,7 +153,6 @@ class CNN1DGlobalPipeline:
         if not PYTORCH_AVAILABLE: return "Failed: PyTorch/Lightning/Optuna not found."
         print(f"\n--- Starting CNN1D PyTorch GLOBAL Pipeline ---");
         
-        # 1. Load, sort, and split data (same as global LSTM)
         print("Pipeline: Loading, sorting, and splitting data...")
         raw_path = self.cfg.get('data',{}).get('raw_data_path'); abs_path = self._get_abs_path_from_config_value(raw_path)
         if not raw_path or not abs_path or not os.path.exists(abs_path): return "Failed: Data Load"
@@ -176,20 +161,18 @@ class CNN1DGlobalPipeline:
         if full_df_raw is None: return "Failed: Data Load"
         sort_cols = [self.cfg['data']['lat_column'], self.cfg['data']['lon_column'], self.cfg['data']['time_column']]
         full_df_raw.sort_values(by=sort_cols, inplace=True); full_df_raw.reset_index(drop=True, inplace=True)
+        self.full_df_raw_for_prediction = full_df_raw.copy()
         train_df_raw, val_df_raw, test_df_raw = split_data_chronologically(full_df_raw, self.cfg)
         if train_df_raw is None or train_df_raw.empty: return "Failed: Data Split"
 
-        # 2. Feature engineering (same as global LSTM)
         print("Pipeline: Engineering features..."); train_df_featured = engineer_features(train_df_raw.copy(), self.cfg)
         val_df_featured = engineer_features(val_df_raw.copy(), self.cfg); test_df_featured = engineer_features(test_df_raw.copy(), self.cfg)
         if train_df_featured.empty: return "Failed: Feature Engineering"
 
-        # 3. Scaling (same as global LSTM)
         print("Pipeline: Scaling data..."); scaled_train_df, scaled_val_df, scaled_test_df, fitted_scaler = scale_data(train_df_featured, val_df_featured, test_df_featured, self.cfg)
         if fitted_scaler is None: return "Failed: Scaling"
         self.scaler = fitted_scaler
 
-        # 4. Create Datasets and DataLoaders (same as global LSTM)
         print("Pipeline: Creating Datasets and DataLoaders...")
         target_col = self.cfg['project_setup']['target_variable']; feature_cols = [self.cfg['data']['lat_column'], self.cfg['data']['lon_column'], target_col] + self.cfg['data']['predictor_columns']
         feature_cols_exist = [col for col in feature_cols if col in scaled_train_df.columns]
@@ -209,7 +192,6 @@ class CNN1DGlobalPipeline:
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers)
 
-        # 5. Hyperparameter Tuning
         n_features = train_dataset.features_np.shape[1]
         n_trials = self.cfg.get('cnn1d_params', {}).get('tuning', {}).get('n_trials', 15)
         print(f"Pipeline: Starting Optuna for {n_trials} trials... (Model input_size will be {n_features})")
@@ -218,7 +200,6 @@ class CNN1DGlobalPipeline:
         self.best_hyperparams = study.best_trial.params
         print(f"Pipeline: Optuna found best params: {self.best_hyperparams}")
 
-        # 6. Train Final Model
         print("Pipeline: Training final model..."); best = self.best_hyperparams
         final_model_base = CNN1DRegressor(n_features, best['n_conv_layers'], 2**best['out_channels_power'], best['kernel_size'], best['dropout_rate'], n_steps_out)
         final_lightning_model = SequenceModelLightningModule(final_model_base, best['learning_rate'])
@@ -234,29 +215,31 @@ class CNN1DGlobalPipeline:
         print(f"Pipeline: Final model training complete. Best model saved at: {best_model_path}")
         self.model = SequenceModelLightningModule.load_from_checkpoint(best_model_path, model=final_lightning_model.model, learning_rate=final_lightning_model.learning_rate)
         
-        # 7. Evaluate and Save
-        # (This part can be encapsulated in a helper method if needed, but is here for clarity)
-        print("\n--- Final Model Evaluation ---"); self.all_metrics = {}
+        self.evaluate_and_save(final_trainer, fitted_scaler, train_loader, val_loader, DataLoader(test_dataset, batch_size=batch_size))
+        
+        # --- ADDED: Call to predict on full data ---
+        self.predict_on_full_data()
+        
+        print(f"--- CNN1D Global Pipeline Run Finished ---")
+        return self.all_metrics
+
+    def evaluate_and_save(self, trainer, scaler, train_loader, val_loader, test_loader):
+        print("\n--- Final Model Evaluation ---"); target_col = self.cfg['project_setup']['target_variable']
         self.model.eval()
         with torch.no_grad():
-            for split_name, loader in [('train', train_loader), ('validation', val_loader), ('test', DataLoader(test_dataset, batch_size=batch_size))]:
+            for split_name, loader in [('train', train_loader), ('validation', val_loader), ('test', test_loader)]:
                 if len(loader.dataset) > 0:
-                    scaled_preds = torch.cat(final_trainer.predict(self.model, dataloaders=loader)).numpy()
-                    
+                    scaled_preds = torch.cat(trainer.predict(self.model, dataloaders=loader)).numpy()
                     if isinstance(loader.dataset, torch.utils.data.ConcatDataset):
-                        y_actual_seq = torch.cat([d.target_np for d in loader.dataset.datasets])
-                        # For ConcatDataset, indices need careful handling if they are not contiguous
-                        # This part might need adjustment if using ConcatDataset for evaluation
-                        # A simpler way is to just predict on the original train and val loaders
-                        # But for now, we assume indices align for the sake of the example
+                        # Handle concatenated dataset for train/val splits during final evaluation
+                        y_actual_seq = torch.cat([d.target_np[d.indices] for d in loader.dataset.datasets])
                     else:
                          y_actual_seq = loader.dataset.target_np[loader.dataset.indices]
-
-                    inversed_preds = inverse_transform_predictions(pd.DataFrame(scaled_preds, columns=[target_col]), target_col, fitted_scaler)
-                    inversed_actuals = inverse_transform_predictions(pd.DataFrame(y_actual_seq.numpy(), columns=[target_col]), target_col, fitted_scaler)
+                    
+                    inversed_preds = inverse_transform_predictions(pd.DataFrame(scaled_preds, columns=[target_col]), target_col, scaler)
+                    inversed_actuals = inverse_transform_predictions(pd.DataFrame(y_actual_seq.numpy(), columns=[target_col]), target_col, scaler)
                     
                     if inversed_preds is not None and inversed_actuals is not None:
-                        # Ensure lengths match for metric calculation
                         min_len = min(len(inversed_preds), len(inversed_actuals))
                         metrics = self._calculate_metrics(inversed_actuals[:min_len], inversed_preds[:min_len])
                         self.all_metrics[split_name] = metrics
@@ -265,8 +248,52 @@ class CNN1DGlobalPipeline:
         metrics_filename = self.cfg.get('results',{}).get('metrics_filename', 'global_cnn1d_metrics.json')
         with open(os.path.join(self.run_output_dir, metrics_filename), 'w') as f: json.dump(self.all_metrics, f, indent=4)
         print(f"Pipeline: Evaluation metrics saved."); scaler_filename = self.cfg.get('scaling', {}).get('scaler_filename', 'global_scaler_cnn1d.joblib')
-        save_scaler(fitted_scaler, os.path.join(self.run_models_dir, scaler_filename)); print(f"Pipeline: Global scaler saved.")
+        save_scaler(scaler, os.path.join(self.run_models_dir, scaler_filename)); print(f"Pipeline: Global scaler saved.")
+
+    # --- NEW: predict_on_full_data method ---
+    def predict_on_full_data(self):
+        print("\nPipeline: Generating predictions on the full raw dataset...");
+        if self.model is None or self.scaler is None: return None
+        if self.full_df_raw_for_prediction is None: return None
         
-        print(f"--- CNN1D Global Pipeline Run Finished ---")
-        return self.all_metrics
+        full_featured_df = engineer_features(self.full_df_raw_for_prediction.copy(), self.cfg)
+        if full_featured_df.empty: return None
+        
+        target_col = self.cfg['project_setup']['target_variable']
+        cols_to_scale = [target_col] + self.cfg['data']['predictor_columns']
+        actual_cols_to_scale = [col for col in cols_to_scale if col in full_featured_df.columns]
+        
+        scaled_full_featured = full_featured_df.copy()
+        scaled_full_featured[actual_cols_to_scale] = self.scaler.transform(full_featured_df[actual_cols_to_scale])
+        
+        feature_cols = [self.cfg['data']['lat_column'], self.cfg['data']['lon_column'], target_col] + self.cfg['data']['predictor_columns']
+        feature_cols_exist = [col for col in feature_cols if col in scaled_full_featured.columns]
+        X_flat = scaled_full_featured[feature_cols_exist]; y_flat = X_flat.pop(target_col)
+        
+        n_steps_in = self.cfg.get('cnn1d_params', {}).get('n_steps_in', 12)
+        n_steps_out = self.cfg.get('cnn1d_params', {}).get('n_steps_out', 1)
+        group_by_cols = [self.cfg['data']['lat_column'], self.cfg['data']['lon_column']]
+        
+        full_dataset = SequenceDataset(X_flat, y_flat, group_by_cols, n_steps_in, n_steps_out)
+        if len(full_dataset) == 0: return None
+        
+        full_loader = DataLoader(full_dataset, batch_size=self.cfg.get('cnn1d_params',{}).get('batch_size',256))
+        
+        self.model.eval()
+        with torch.no_grad():
+            trainer_for_pred = pl.Trainer(accelerator='auto', devices=1, logger=False)
+            scaled_predictions = torch.cat(trainer_for_pred.predict(self.model, dataloaders=full_loader)).numpy()
+        
+        inversed_predictions = inverse_transform_predictions(pd.DataFrame(scaled_predictions, columns=[target_col]), target_col, self.scaler)
+        
+        original_indices = full_featured_df.index[full_dataset.indices]
+        pred_indices = original_indices + n_steps_in + n_steps_out - 1
+        
+        output_df = self.full_df_raw_for_prediction.copy()
+        output_df[f'{target_col}_predicted'] = pd.Series(inversed_predictions.values.flatten(), index=pred_indices)
+        
+        pred_filename = self.cfg.get('results',{}).get('predictions_filename', 'global_cnn1d_full_predictions.csv')
+        save_path = os.path.join(self.run_output_dir, pred_filename)
+        output_df[[self.cfg['data']['time_column'], 'lat', 'lon', target_col, f'{target_col}_predicted']].to_csv(save_path, index=False)
+        print(f"Pipeline: Full data predictions saved to {save_path}")
 

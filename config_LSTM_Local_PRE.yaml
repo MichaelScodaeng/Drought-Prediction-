@@ -31,7 +31,7 @@ scaling:
 lstm_params:
   n_steps_in: 12  # Input sequence length (lookback window)
   n_steps_out: 1  # Output sequence length (forecast horizon)
-  batch_size: 32
+  batch_size: 16
 
   # PyTorch Lightning Trainer settings
   trainer:
@@ -45,8 +45,8 @@ lstm_params:
     n_trials: 2  # Number of hyperparameter combinations to try for each location
     # --- Search space for each hyperparameter ---
     learning_rate:
-      low: 1.0e-4
-      high: 1.0e-2
+      low: 1.0e-6
+      high: 1.0e-4
       log: True
     hidden_size:
       low: 32
@@ -57,7 +57,7 @@ lstm_params:
       high: 3
     dropout_rate:
       low: 0.1
-      high: 0.5
+      high: 0.2
 
 paths:
   models_base_dir: "models_saved" 
