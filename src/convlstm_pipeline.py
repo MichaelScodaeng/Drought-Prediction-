@@ -5,7 +5,7 @@ import os
 import json
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import warnings
-import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # --- Helper function for JSON serialization ---
 def _to_python_type(obj):
@@ -42,40 +42,32 @@ except ImportError as e:
 class ConvLSTMCell(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, bias):
         super(ConvLSTMCell, self).__init__()
-        self.hidden_dim = hidden_dim
-        padding = kernel_size[0] // 2, kernel_size[1] // 2
-        self.conv = nn.Conv2d(in_channels=input_dim + hidden_dim, out_channels=4 * hidden_dim,
-                              kernel_size=kernel_size, padding=padding, bias=bias)
+        self.hidden_dim = hidden_dim; self.kernel_size = kernel_size; self.bias = bias
+        self.padding = kernel_size[0] // 2, kernel_size[1] // 2
+        self.conv = nn.Conv2d(in_channels=input_dim + hidden_dim, out_channels=4 * hidden_dim, kernel_size=self.kernel_size, padding=self.padding, bias=self.bias)
     def forward(self, input_tensor, cur_state):
-        h_cur, c_cur = cur_state
-        combined = torch.cat([input_tensor, h_cur], dim=1)
-        combined_conv = self.conv(combined)
-        cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
+        h_cur, c_cur = cur_state; combined = torch.cat([input_tensor, h_cur], dim=1)
+        combined_conv = self.conv(combined); cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
         i = torch.sigmoid(cc_i); f = torch.sigmoid(cc_f); o = torch.sigmoid(cc_o); g = torch.tanh(cc_g)
         c_next = f * c_cur + i * g; h_next = o * torch.tanh(c_next)
         return h_next, c_next
     def init_hidden(self, batch_size, image_size):
         height, width = image_size
-        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device),
-                torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device))
+        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device), torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device))
 
 class ConvLSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, batch_first=True, bias=True, return_all_layers=True):
         super(ConvLSTM, self).__init__()
         self._check_kernel_size_consistency(kernel_size)
-        kernel_size = self._extend_for_multilayer(kernel_size, num_layers)
-        hidden_dim = self._extend_for_multilayer(hidden_dim, num_layers)
+        kernel_size = self._extend_for_multilayer(kernel_size, num_layers); hidden_dim = self._extend_for_multilayer(hidden_dim, num_layers)
         if not len(kernel_size) == len(hidden_dim) == num_layers: raise ValueError('Inconsistent list length.')
-        self.input_dim = input_dim; self.hidden_dim = hidden_dim; self.kernel_size = kernel_size
-        self.num_layers = num_layers; self.batch_first = batch_first; self.bias = bias
-        self.return_all_layers = return_all_layers
+        self.input_dim = input_dim; self.hidden_dim = hidden_dim; self.kernel_size = kernel_size; self.num_layers = num_layers
+        self.batch_first = batch_first; self.bias = bias; self.return_all_layers = return_all_layers
         cell_list = []
         for i in range(0, self.num_layers):
             cur_input_dim = self.input_dim if i == 0 else self.hidden_dim[i - 1]
-            cell_list.append(ConvLSTMCell(input_dim=cur_input_dim, hidden_dim=self.hidden_dim[i],
-                                          kernel_size=self.kernel_size[i], bias=self.bias))
+            cell_list.append(ConvLSTMCell(input_dim=cur_input_dim, hidden_dim=self.hidden_dim[i], kernel_size=self.kernel_size[i], bias=self.bias))
         self.cell_list = nn.ModuleList(cell_list)
-
     def forward(self, input_tensor, hidden_state=None):
         if not self.batch_first: input_tensor = input_tensor.permute(1, 0, 2, 3, 4)
         b, _, _, h, w = input_tensor.size()
@@ -89,8 +81,7 @@ class ConvLSTM(nn.Module):
                 output_inner.append(h)
             layer_output = torch.stack(output_inner, dim=1); cur_layer_input = layer_output
             layer_output_list.append(layer_output); last_state_list.append([h, c])
-        if not self.return_all_layers:
-            layer_output_list = layer_output_list[-1:]; last_state_list = last_state_list[-1:]
+        if not self.return_all_layers: layer_output_list = layer_output_list[-1:]; last_state_list = last_state_list[-1:]
         return layer_output_list, last_state_list
     def _init_hidden(self, batch_size, image_size):
         init_states = [];
@@ -106,40 +97,33 @@ class ConvLSTM(nn.Module):
         return param
 
 class EncodingForecastingConvLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, pre_seq_length, aft_seq_length, batch_first=True):
+    def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, pre_seq_length, aft_seq_length, n_targets, batch_first=True):
         super().__init__(); self.hidden_dim = hidden_dim; self.pre_seq_length = pre_seq_length; self.aft_seq_length = aft_seq_length
-        self.encoder = ConvLSTM(input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=kernel_size,
-                                num_layers=num_layers, batch_first=batch_first, return_all_layers=True)
-        self.forecaster = ConvLSTM(input_dim=hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim,
-                                   hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers,
-                                   batch_first=batch_first, return_all_layers=False)
-        self.conv_last = nn.Conv2d(in_channels=hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim,
-                                   out_channels=1, kernel_size=1)
+        self.encoder = ConvLSTM(input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, batch_first=batch_first, return_all_layers=True)
+        self.forecaster = ConvLSTM(input_dim=hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, batch_first=batch_first, return_all_layers=False)
+        self.conv_last = nn.Conv2d(in_channels=hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim, out_channels=n_targets, kernel_size=1)
     def forward(self, input_tensor):
-        _, encoder_states = self.encoder(input_tensor)
-        forecaster_states = encoder_states
+        _, encoder_states = self.encoder(input_tensor); forecaster_states = encoder_states
         next_input = encoder_states[-1][0].unsqueeze(1)
         predictions = []
         for _ in range(self.aft_seq_length):
             forecaster_output, forecaster_states = self.forecaster(next_input, forecaster_states)
-            hidden_state = forecaster_output[0][:, -1]
-            pred = self.conv_last(hidden_state)
-            predictions.append(pred)
-            next_input = hidden_state.unsqueeze(1)
-        predictions = torch.stack(predictions, dim=1)
-        return predictions
+            hidden_state = forecaster_output[0][:, -1]; pred = self.conv_last(hidden_state)
+            predictions.append(pred); next_input = hidden_state.unsqueeze(1)
+        return torch.stack(predictions, dim=1)
 
-# --- UPDATED Lightning Module ---
+# --- Lightning Module with Masked Loss (Single Task) ---
 class GridModelLightningModule(pl.LightningModule):
     def __init__(self, model, learning_rate, mask, trial=None):
         super().__init__(); self.model = model; self.learning_rate = learning_rate; self.trial = trial
         self.criterion = nn.MSELoss(reduction='none'); self.register_buffer('mask', mask); self.validation_step_outputs = []
     def forward(self, x): return self.model(x)
     def _calculate_masked_loss(self, y_hat, y):
-        # y_hat shape: (N, T, 1, H, W) | y shape: (N, T, H, W)
+        # y_hat shape: (N, T_out, 1, H, W) | y shape: (N, T_out, H, W)
         if y_hat.shape[2] == 1: y_hat = y_hat.squeeze(2) # Remove channel dim
+        if y_hat.ndim == 3 and y.ndim == 4 and y.shape[1] == 1: y = y.squeeze(1) # Align y
         loss = self.criterion(y_hat, y); masked_loss = loss * self.mask
-        return masked_loss.sum() / (self.mask.sum() * y.size(0) * y.size(1) + 1e-9) # Also divide by sequence length
+        return masked_loss.sum() / (self.mask.sum() * y.size(0) * y.size(1) + 1e-9)
     def training_step(self, batch, batch_idx): x, y = batch; return self._calculate_masked_loss(self(x), y)
     def validation_step(self, batch, batch_idx): x, y = batch; loss = self._calculate_masked_loss(self(x), y); self.log('val_loss', loss, on_epoch=True); self.validation_step_outputs.append(loss); return loss
     def predict_step(self, batch, batch_idx, dataloader_idx=0): x, y = batch; return self(x)
@@ -150,7 +134,7 @@ class GridModelLightningModule(pl.LightningModule):
         if self.trial and self.trial.should_prune(): raise optuna.exceptions.TrialPruned()
     def configure_optimizers(self): return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
 
-# --- UPDATED SequenceDataset for ConvLSTM ---
+# --- Custom Dataset for ConvLSTM ---
 class SequenceDatasetConvLSTM(Dataset):
     def __init__(self, gridded_data, target_feature_idx, n_steps_in, n_steps_out=1):
         self.data = torch.tensor(gridded_data, dtype=torch.float32).permute(0, 3, 1, 2)
@@ -166,33 +150,22 @@ class ConvLSTMPipeline:
     def __init__(self, config_path="config.yaml"):
         self.config_path_abs = os.path.abspath(config_path); self.cfg = load_config(self.config_path_abs)
         self.experiment_name = self.cfg.get('project_setup',{}).get('experiment_name','convlstm_experiment')
-        self.project_root_for_paths = os.path.dirname(self.config_path_abs)
-        self.run_output_dir = os.path.join(self.project_root_for_paths, 'run_outputs', self.experiment_name)
+        self.project_root_for_paths = os.path.dirname(self.config_path_abs); self.run_output_dir = os.path.join(self.project_root_for_paths, 'run_outputs', self.experiment_name)
         self.run_models_dir = os.path.join(self.project_root_for_paths, 'models_saved', self.experiment_name)
         os.makedirs(self.run_output_dir, exist_ok=True); os.makedirs(self.run_models_dir, exist_ok=True)
-        per_loc_preds_dir_name = self.cfg.get('results', {}).get('per_location_predictions_dir', 'per_location_full_predictions')
-        self.per_location_predictions_output_dir = os.path.join(self.run_output_dir, per_loc_preds_dir_name)
-        os.makedirs(self.per_location_predictions_output_dir, exist_ok=True)
         self.model = None; self.all_metrics = {}; self.mask = None; self.full_df_raw = None; self.gridded_data = None
 
     def _get_abs_path_from_config_value(self, rp): return os.path.abspath(os.path.join(self.project_root_for_paths, rp)) if rp and not os.path.isabs(rp) else rp
+    
     def _calculate_masked_metrics(self, actuals, preds, mask):
-        # Squeeze extra dimensions so all shapes match
-        while actuals.ndim > mask.ndim:
-            actuals = actuals.squeeze(0)
-        while preds.ndim > mask.ndim:
-            preds = preds.squeeze(0)
-        while mask.ndim > actuals.ndim:
-            mask = mask.squeeze(0)
-        # Now shapes should match
         mask_bool = mask.bool().to(actuals.device)
-        actuals_np = actuals[mask_bool].flatten().cpu().numpy()
-        preds_np = preds[mask_bool].flatten().cpu().numpy()
-        return {
-            'rmse': mean_squared_error(actuals_np, preds_np, squared=False),
-            'mae': mean_absolute_error(actuals_np, preds_np),
-            'r2': r2_score(actuals_np, preds_np)
-        }
+        if preds.shape[1] == 1: preds = preds.squeeze(1)
+        if preds.shape[1] == 1: preds = preds.squeeze(1)
+        if actuals.shape[1] == 1: actuals = actuals.squeeze(1)
+        if actuals.shape[1] == 1: actuals = actuals.squeeze(1)
+        batch_mask = mask_bool.expand_as(actuals)
+        actuals_np = actuals[batch_mask].flatten().cpu().numpy(); preds_np = preds[batch_mask].flatten().cpu().numpy()
+        return {'rmse': mean_squared_error(actuals_np, preds_np, squared=False), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
 
     def _objective(self, trial, train_loader, val_loader, in_channels, pre_seq_len, aft_seq_len):
         cfg = self.cfg.get('convlstm_params', {}).get('tuning', {})
@@ -202,7 +175,7 @@ class ConvLSTMPipeline:
         hidden_dim = [hidden_size] * n_layers 
         kernel_size = trial.suggest_categorical('kernel_size', cfg.get('kernel_size',{}).get('choices', [3,5]))
         kernel_size_tuple = (kernel_size, kernel_size) 
-        model = EncodingForecastingConvLSTM(in_channels, hidden_dim, kernel_size_tuple, n_layers, pre_seq_len, aft_seq_len)
+        model = EncodingForecastingConvLSTM(in_channels, hidden_dim, kernel_size_tuple, n_layers, pre_seq_len, aft_seq_len, n_targets=1)
         lightning_model = GridModelLightningModule(model, lr, self.mask, trial=trial)
         trainer_params = self.cfg.get('convlstm_params', {}).get('trainer', {})
         early_stopping = EarlyStopping(monitor="val_loss", patience=trainer_params.get('patience_for_early_stopping', 5))
@@ -214,10 +187,11 @@ class ConvLSTMPipeline:
 
     def run_pipeline(self):
         if not PYTORCH_AVAILABLE: return "Failed: Dependencies not found."
-        print(f"\n--- Starting ConvLSTM Encoder-Decoder Global Pipeline ---");
+        print(f"\n--- Starting ConvLSTM Global Pipeline ---");
         raw_path = self._get_abs_path_from_config_value(self.cfg.get('data',{}).get('raw_data_path'))
         self.full_df_raw = load_and_prepare_data({'data': {'raw_data_path': raw_path, 'time_column': self.cfg['data']['time_column']}})
         if self.full_df_raw is None: return "Failed: Data Load"
+        
         self.gridded_data, mask = create_gridded_data(self.full_df_raw, self.cfg)
         self.mask = torch.tensor(mask, dtype=torch.float32)
 
@@ -226,8 +200,11 @@ class ConvLSTMPipeline:
         val_end_idx = np.where(time_steps <= np.datetime64(self.cfg['data']['validation_end_date']))[0][-1]
         train_grid, val_grid, test_grid = self.gridded_data[:train_end_idx+1], self.gridded_data[train_end_idx+1:val_end_idx+1], self.gridded_data[val_end_idx+1:]
         
+        target_col = self.cfg['project_setup']['target_variable']
+        features_to_grid = self.cfg['data']['features_to_grid']
+        target_idx = features_to_grid.index(target_col)
+        
         seq_cfg = self.cfg.get('sequence_params', {}); n_in, n_out = seq_cfg.get('n_steps_in',12), seq_cfg.get('n_steps_out',1)
-        target_idx = self.cfg['data']['features_to_grid'].index(self.cfg['project_setup']['target_variable'])
         
         train_ds = SequenceDatasetConvLSTM(train_grid, target_idx, n_in, n_out)
         val_ds = SequenceDatasetConvLSTM(val_grid, target_idx, n_in, n_out)
@@ -240,13 +217,13 @@ class ConvLSTMPipeline:
         val_loader = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers)
 
         study = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner())
-        study.optimize(lambda t: self._objective(t, train_loader, val_loader, len(self.cfg['data']['features_to_grid']), n_in, n_out), 
+        study.optimize(lambda t: self._objective(t, train_loader, val_loader, len(features_to_grid), n_in, n_out), 
                        n_trials=self.cfg.get('convlstm_params',{}).get('tuning',{}).get('n_trials', 15))
         self.best_hyperparams = study.best_trial.params
         print(f"Pipeline: Optuna found best params: {self.best_hyperparams}")
         
         best = self.best_hyperparams
-        final_model_base = EncodingForecastingConvLSTM(len(self.cfg['data']['features_to_grid']), [best['hidden_dim_size']] * best['n_layers'], (best['kernel_size'],best['kernel_size']), best['n_layers'], n_in, n_out)
+        final_model_base = EncodingForecastingConvLSTM(len(features_to_grid), [best['hidden_dim_size']] * best['n_layers'], (best['kernel_size'],best['kernel_size']), best['n_layers'], n_in, n_out, n_targets=1)
         final_lightning_model = GridModelLightningModule(final_model_base, best['learning_rate'], self.mask)
         full_train_loader = DataLoader(torch.utils.data.ConcatDataset([train_ds, val_ds]), batch_size=batch_size, shuffle=True)
         
@@ -260,14 +237,12 @@ class ConvLSTMPipeline:
         print(f"Pipeline: Final model training complete. Best model saved at: {best_model_path}")
         self.model = GridModelLightningModule.load_from_checkpoint(best_model_path, model=final_lightning_model.model, learning_rate=final_lightning_model.learning_rate, mask=self.mask)
 
-        # --- Call the final evaluation and prediction saving methods ---
         self.evaluate_and_save(final_trainer, train_ds, val_ds, test_ds)
         self.predict_on_full_data()
         
-        print(f"--- ConvLSTM Encoder-Decoder Global Pipeline Run Finished ---")
+        print(f"--- ConvLSTM Global Pipeline Run Finished ---")
         return self.all_metrics
 
-    # --- COMPLETE: Method to evaluate and save all artifacts ---
     def evaluate_and_save(self, trainer, train_dataset, val_dataset, test_dataset):
         print("\n--- Final Model Evaluation ---"); self.all_metrics = {}
         self.model.eval()
@@ -281,17 +256,19 @@ class ConvLSTMPipeline:
                     metrics = self._calculate_masked_metrics(y_actual_grid, scaled_preds_grid, self.mask)
                     self.all_metrics[split_name] = metrics
                     print(f"  {split_name.capitalize()} Set: RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}, R2={metrics['r2']:.4f}")
+        
         metrics_filename = self.cfg.get('results',{}).get('metrics_filename', 'global_convlstm_metrics.json')
         with open(os.path.join(self.run_output_dir, metrics_filename), 'w') as f:
             json.dump(_to_python_type(self.all_metrics), f, indent=4)
         print(f"Pipeline: Evaluation metrics saved to {os.path.join(self.run_output_dir, metrics_filename)}")
 
-    # --- COMPLETE: Method to generate and save full predictions ---
     def predict_on_full_data(self):
         print("\nPipeline: Generating predictions on the full raw dataset...")
         if self.model is None or self.gridded_data is None: return None
+        
         target_col = self.cfg['project_setup']['target_variable']
-        target_idx = self.cfg['data']['features_to_grid'].index(target_col)
+        features_to_grid = self.cfg['data']['features_to_grid']
+        target_idx = features_to_grid.index(target_col)
         seq_params = self.cfg.get('sequence_params', {}); n_in, n_out = seq_params.get('n_steps_in', 12), seq_params.get('n_steps_out', 1)
 
         full_dataset = SequenceDatasetConvLSTM(self.gridded_data, target_idx, n_in, n_out)
@@ -299,16 +276,23 @@ class ConvLSTMPipeline:
         full_loader = DataLoader(full_dataset, batch_size=self.cfg.get('convlstm_params',{}).get('batch_size',8))
         
         self.model.eval()
+        # ...existing code...
         with torch.no_grad():
             trainer = pl.Trainer(accelerator='auto', devices=1, logger=False)
-            predicted_grids = torch.cat(trainer.predict(self.model, dataloaders=full_loader)).cpu().numpy()
+            predicted_grids_list = trainer.predict(self.model, dataloaders=full_loader)
+            predicted_grids = torch.cat(predicted_grids_list).cpu().numpy()
 
-        if predicted_grids.ndim == 4 and predicted_grids.shape[1] == 1: predicted_grids = predicted_grids.squeeze(1)
+        predicted_grids = np.squeeze(predicted_grids)  # <-- Fix: remove all singleton dimensions
 
+        print("Pipeline: Un-gridding predictions to create output CSV...")
+        # ...existing code...
+
+
+        
         print("Pipeline: Un-gridding predictions to create output CSV...")
         time_steps = self.full_df_raw[self.cfg['data']['time_column']].unique()
         pred_start_time_idx = n_in + n_out - 1
-        prediction_times = time_steps[pred_start_time_idx:pred_start_time_idx + len(predicted_grids)]
+        prediction_times = time_steps[pred_start_time_idx : pred_start_time_idx + len(predicted_grids)]
 
         output_records = []
         valid_pixel_indices = np.argwhere(self.mask.cpu().numpy() == 1)
@@ -321,15 +305,20 @@ class ConvLSTMPipeline:
         
         cell_to_coord = self.full_df_raw[['row_idx','col_idx','lat','lon']].drop_duplicates().set_index(['row_idx','col_idx'])
 
-        for i, t in enumerate(prediction_times):
+        for i, t in enumerate(tqdm(prediction_times, desc="Un-gridding predictions")):
             pred_grid = predicted_grids[i]
             actual_grid = self.gridded_data[pred_start_time_idx + i, :, :, target_idx]
             for r, c in valid_pixel_indices:
-                try: coords = cell_to_coord.loc[(r,c)]; lat, lon = coords.lat, coords.lon
+                record = {'time': t}
+                try: coords = cell_to_coord.loc[(r,c)]; record['lat'], record['lon'] = coords.lat, coords.lon
                 except KeyError: continue
-                actual_value_row = self.full_df_raw[(self.full_df_raw[self.cfg['data']['time_column']] == t) & (self.full_df_raw['lat'] == lat) & (self.full_df_raw['lon'] == lon)]
-                actual_value = actual_value_row[target_col].values[0] if not actual_value_row.empty else np.nan
-                output_records.append({'time': t, 'lat': lat, 'lon': lon, target_col: actual_value, f'{target_col}_predicted': pred_grid[r, c]})
+                
+                actual_value_row = self.full_df_raw[(self.full_df_raw['time'] == t) & (self.full_df_raw['lat'] == record['lat']) & (self.full_df_raw['lon'] == record['lon'])]
+                
+                record[target_col] = actual_value_row[target_col].values[0] if not actual_value_row.empty else np.nan
+                record[f'{target_col}_predicted'] = pred_grid[r, c] 
+                
+                output_records.append(record)
 
         output_df = pd.DataFrame(output_records)
         pred_filename = self.cfg.get('results',{}).get('predictions_filename', 'global_convlstm_full_predictions.csv')
