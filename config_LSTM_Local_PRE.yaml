@@ -35,14 +35,14 @@ lstm_params:
 
   # PyTorch Lightning Trainer settings
   trainer:
-    max_epochs: 50
-    patience_for_early_stopping: 5 # Early stopping patience
+    max_epochs: 100
+    patience_for_early_stopping: 10 # Early stopping patience
     accelerator: "auto" # "cpu", "gpu", "tpu", "auto"
     enable_progress_bar: False # Set to True to see progress bars for each location
   
   # Optuna Hyperparameter Tuning settings
   tuning:
-    n_trials: 20  # Number of hyperparameter combinations to try for each location
+    n_trials: 2  # Number of hyperparameter combinations to try for each location
     # --- Search space for each hyperparameter ---
     learning_rate:
       low: 1.0e-4
