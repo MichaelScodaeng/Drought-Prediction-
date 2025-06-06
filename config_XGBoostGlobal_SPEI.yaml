@@ -1,0 +1,56 @@
+# config.yaml
+
+project_setup:
+  project_name: "SPEI_Forecasting_Global_XGBoost"
+  random_seed: 42
+  target_variable: "spei"
+
+data:
+  raw_data_path: "data/full.csv"
+  time_column: "time"
+  lat_column: "lat"
+  lon_column: "lon"
+  # From our inspection, these are good initial predictors for SPEI
+  predictor_columns: ['tmp', 'dtr', 'cld', 'tmx', 'tmn', 'wet', 'vap', 'soi', 'dmi', 'pdo', 'nino4', 'nino34', 'nino3',"pre","pet","spei"]
+  # Define split points. Given data up to 2023-12-16:
+  # Let's use ~1901-2018 for train, 2019-2020 for val, 2021-2023 for test
+  # (Adjust these based on how much data you want for each set)
+  train_end_date: "2018-12-31"
+  validation_end_date: "2020-12-31"
+
+feature_engineering:
+  # How many past time steps to use as features for the target and predictors
+  lag_periods: [1, 2, 3,4,5, 6,7,8, 9,10,11, 12] # e.g., SPEI_lag_1, tmp_lag_1 etc.
+  # For Global XGBoost, we might not need pre/post sequence length in the same way as LSTMs
+  # but lags serve a similar purpose for input features.
+  # pre_sequence_length: 12 # (Alternative way to think about max lag)
+  post_sequence_length: 1 # We'll predict one step ahead initially
+  date_features_to_extract: ['month', 'year']
+
+
+scaling:
+  method: "robust"
+  scaler_filename: "models_saved/robust_scaler.joblib"
+
+model_params:
+  global_xgboost:
+    objective: "reg:squarederror"
+    model_filename: "my_xgb_model.json"
+    eval_metric: "rmse"
+    # Initial set of hyperparameters (we will tune these later)
+    n_estimators: 100
+    learning_rate: 0.1
+    max_depth: 5
+    subsample: 0.8
+    colsample_bytree: 0.8
+    # Hyperparameter tuning settings (e.g., for Optuna or GridSearchCV)
+    tuning:
+      n_trials_optuna: 3 # Number of trials for Optuna
+      # Or define ranges for GridSearchCV/RandomizedSearchCV
+
+evaluation:
+  metrics: ["rmse", "mae", "r2_score"]
+
+logging:
+  # Placeholder for experiment tracking if we add MLflow, etc.
+  experiment_name: "Global_XGBoost_on_SPEI"
