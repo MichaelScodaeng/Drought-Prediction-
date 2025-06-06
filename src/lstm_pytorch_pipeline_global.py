@@ -126,7 +126,7 @@ class LSTMPyTorchGlobalPipeline:
         if not relative_path or os.path.isabs(relative_path): return relative_path
         return os.path.abspath(os.path.join(self.project_root_for_paths, relative_path))
     def _calculate_metrics(self, actuals, predictions): # (Helper function)
-        rmse = mean_squared_error(actuals, predictions, squared=False); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
+        rmse = mean_squared_error(actuals, predictions); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
         return {'rmse': rmse, 'mae': mae, 'r2': r2}
 
     # --- Main Pipeline Logic (No Location Loop) ---
