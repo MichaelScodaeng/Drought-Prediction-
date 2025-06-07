@@ -41,7 +41,7 @@ convlstm_params:
   tuning:
     n_trials: 1
     learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
-    hidden_dim_size: {choices: [64]} 
+    hidden_dim_size: {choices: [256]} 
     n_layers: {low: 2, high: 3}
     kernel_size: {choices: [3, 5]}
         
