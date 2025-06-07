@@ -37,7 +37,7 @@ cnn1d_params:
 
   # PyTorch Lightning Trainer settings
   trainer:
-    max_epochs: 2
+    max_epochs: 200
     patience_for_early_stopping: 5
     accelerator: "auto"
     enable_progress_bar: True
@@ -45,7 +45,7 @@ cnn1d_params:
   # Optuna Hyperparameter Tuning settings
   tuning:
     n_trials: 1  # Number of trials for the single global model
-    learning_rate: {low: 1.0e-4, high: 1.0e-2, log: True}
+    learning_rate: {low: 1.0e-5, high: 1.0e-5, log: True}
     # --- CNN Specific Hyperparameters ---
     n_conv_layers:
       low: 2

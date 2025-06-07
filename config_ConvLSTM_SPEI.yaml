@@ -33,14 +33,14 @@ convlstm_params:
   batch_size: 16       
   
   trainer:
-    max_epochs: 500
+    max_epochs: 200
     patience_for_early_stopping: 30
     accelerator: "auto"
     enable_progress_bar: True
   
   tuning:
     n_trials: 1
-    learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
+    learning_rate: {low: 1.0e-5, high: 1.0e-5, log: True}
     # For this model, hidden_dim is a list. We will tune the size for all layers together.
     hidden_dim_size: {choices: [64]} 
     # n_layers and hidden_dim_size will be used to construct the hidden_dim list

@@ -101,10 +101,10 @@ class SequenceDataset(Dataset):
         
         seq_x = self.features_np[start_pos:end_pos]
         seq_y = self.target_np[end_pos:out_end_pos]
-        print("Shape of seq_x:", seq_x.shape, "Shape of seq_y:", seq_y.shape)
+        #print("Shape of seq_x:", seq_x.shape, "Shape of seq_y:", seq_y.shape)
 
         if self.n_steps_out == 1:
-            print("Shape of Squeeezed seq_y:", seq_y.shape)
+            #print("Shape of Squeeezed seq_y:", seq_y.shape)
             return seq_x, seq_y.squeeze() # Return a scalar if only one step
         
         return seq_x, seq_y
@@ -268,7 +268,7 @@ class LSTMPyTorchGlobalPipeline:
         except optuna.exceptions.TrialPruned: return float('inf')
         return trainer.callback_metrics.get("val_loss", torch.tensor(float('inf'))).item()
     def predict_on_full_data(self):
-        print("\nPipeline: Generating predictions on the full raw dataset...");
+        print("\nPipeline: Generating predictions on the full raw dataset...")
         if self.model is None or self.scaler is None: return None
         full_featured_df = engineer_features(self.full_df_raw_for_prediction.copy(), self.cfg)
         if full_featured_df.empty: return None
