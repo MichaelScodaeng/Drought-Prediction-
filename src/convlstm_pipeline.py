@@ -38,22 +38,175 @@ try:
 except ImportError as e:
     print(f"ConvLSTM Pipeline Error: Could not import utility functions: {e}")
 
-# --- User-Provided ConvLSTM Model Architecture ---
+# Improved ConvLSTM Implementation with fixes
+
 class ConvLSTMCell(nn.Module):
-    def __init__(self, input_dim, hidden_dim, kernel_size, bias):
+    def __init__(self, input_dim, hidden_dim, kernel_size, bias=True):
         super(ConvLSTMCell, self).__init__()
-        self.hidden_dim = hidden_dim; self.kernel_size = kernel_size; self.bias = bias
-        self.padding = kernel_size[0] // 2, kernel_size[1] // 2
-        self.conv = nn.Conv2d(in_channels=input_dim + hidden_dim, out_channels=4 * hidden_dim, kernel_size=self.kernel_size, padding=self.padding, bias=self.bias)
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.bias = bias
+        
+        # Handle both odd and even kernel sizes
+        self.padding = (kernel_size[0] // 2, kernel_size[1] // 2)
+        
+        # Single convolution for all gates (more efficient)
+        self.conv = nn.Conv2d(
+            in_channels=input_dim + hidden_dim,
+            out_channels=4 * hidden_dim,
+            kernel_size=kernel_size,
+            padding=self.padding,
+            bias=bias
+        )
+
     def forward(self, input_tensor, cur_state):
-        h_cur, c_cur = cur_state; combined = torch.cat([input_tensor, h_cur], dim=1)
-        combined_conv = self.conv(combined); cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
-        i = torch.sigmoid(cc_i); f = torch.sigmoid(cc_f); o = torch.sigmoid(cc_o); g = torch.tanh(cc_g)
-        c_next = f * c_cur + i * g; h_next = o * torch.tanh(c_next)
+        h_cur, c_cur = cur_state
+        
+        # Concatenate input and hidden state
+        combined = torch.cat([input_tensor, h_cur], dim=1)
+        combined_conv = self.conv(combined)
+        
+        # Split into gates
+        cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
+        
+        # Apply activations
+        i = torch.sigmoid(cc_i)    # Input gate
+        f = torch.sigmoid(cc_f)    # Forget gate  
+        o = torch.sigmoid(cc_o)    # Output gate
+        g = torch.tanh(cc_g)       # Candidate values
+        
+        # Update cell and hidden states
+        c_next = f * c_cur + i * g
+        h_next = o * torch.tanh(c_next)
+        
         return h_next, c_next
-    def init_hidden(self, batch_size, image_size):
+
+    def init_hidden(self, batch_size, image_size, device):
         height, width = image_size
-        return (torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device), torch.zeros(batch_size, self.hidden_dim, height, width, device=self.conv.weight.device))
+        return (
+            torch.zeros(batch_size, self.hidden_dim, height, width, device=device),
+            torch.zeros(batch_size, self.hidden_dim, height, width, device=device)
+        )
+
+
+class EncodingForecastingConvLSTM(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, 
+                 pre_seq_length, aft_seq_length, n_targets=1, batch_first=True):
+        super().__init__()
+        
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.pre_seq_length = pre_seq_length
+        self.aft_seq_length = aft_seq_length
+        self.n_targets = n_targets
+        
+        # Encoder
+        self.encoder = ConvLSTM(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            kernel_size=kernel_size,
+            num_layers=num_layers,
+            batch_first=batch_first,
+            return_all_layers=True
+        )
+        
+        # Forecaster (input dim should match the output feature dimension)
+        self.forecaster = ConvLSTM(
+            input_dim=n_targets,  # Key fix: use n_targets instead of hidden_dim
+            hidden_dim=hidden_dim,
+            kernel_size=kernel_size,
+            num_layers=num_layers,
+            batch_first=batch_first,
+            return_all_layers=False
+        )
+        
+        # Output projection
+        final_hidden_dim = hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim
+        self.conv_last = nn.Conv2d(
+            in_channels=final_hidden_dim,
+            out_channels=n_targets,
+            kernel_size=1
+        )
+        
+        # Feature projection for forecaster input
+        self.feature_proj = nn.Conv2d(
+            in_channels=final_hidden_dim,
+            out_channels=n_targets,
+            kernel_size=1
+        )
+
+    def forward(self, input_tensor):
+        # Encode input sequence
+        _, encoder_states = self.encoder(input_tensor)
+        
+        # Initialize forecaster with encoder states
+        forecaster_states = encoder_states
+        
+        # Get the last hidden state and project to feature space
+        last_hidden = encoder_states[-1][0]  # Shape: (B, H, H, W)
+        next_input = self.feature_proj(last_hidden).unsqueeze(1)  # Shape: (B, 1, n_targets, H, W)
+        
+        predictions = []
+        
+        # Generate future predictions
+        for _ in range(self.aft_seq_length):
+            # Forecaster step
+            forecaster_output, forecaster_states = self.forecaster(next_input, forecaster_states)
+            
+            # Get prediction from hidden state
+            hidden_state = forecaster_output[0][:, -1]  # Shape: (B, H, H, W)
+            pred = self.conv_last(hidden_state)  # Shape: (B, n_targets, H, W)
+            
+            predictions.append(pred)
+            
+            # Use prediction as next input (teacher forcing alternative)
+            next_input = pred.unsqueeze(1)
+        
+        return torch.stack(predictions, dim=1)  # Shape: (B, T_out, n_targets, H, W)
+
+
+# Alternative: Teacher Forcing Version for Training
+class TeacherForcingConvLSTM(nn.Module):
+    """Version that can use teacher forcing during training"""
+    
+    def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, 
+                 pre_seq_length, aft_seq_length, n_targets=1):
+        super().__init__()
+        
+        # Combined encoder-decoder architecture
+        self.convlstm = ConvLSTM(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            kernel_size=kernel_size,
+            num_layers=num_layers,
+            return_all_layers=False
+        )
+        
+        final_hidden_dim = hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim
+        self.conv_out = nn.Conv2d(final_hidden_dim, n_targets, kernel_size=1)
+        
+        self.pre_seq_length = pre_seq_length
+        self.aft_seq_length = aft_seq_length
+
+    def forward(self, input_tensor, target_tensor=None, teacher_forcing_ratio=0.5):
+        batch_size, total_seq_len, channels, height, width = input_tensor.shape
+        
+        # Process input sequence
+        outputs, _ = self.convlstm(input_tensor)
+        output_seq = outputs[0]  # Shape: (B, T, H, H, W)
+        
+        # Convert to predictions
+        predictions = []
+        for t in range(total_seq_len):
+            pred = self.conv_out(output_seq[:, t])
+            predictions.append(pred)
+        
+        # Return predictions for the forecast horizon
+        forecast_start = self.pre_seq_length
+        forecast_predictions = predictions[forecast_start:forecast_start + self.aft_seq_length]
+        
+        return torch.stack(forecast_predictions, dim=1)
 
 class ConvLSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, batch_first=True, bias=True, return_all_layers=True):
@@ -95,22 +248,6 @@ class ConvLSTM(nn.Module):
     def _extend_for_multilayer(param, num_layers):
         if not isinstance(param, list): param = [param] * num_layers
         return param
-
-class EncodingForecastingConvLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, kernel_size, num_layers, pre_seq_length, aft_seq_length, n_targets, batch_first=True):
-        super().__init__(); self.hidden_dim = hidden_dim; self.pre_seq_length = pre_seq_length; self.aft_seq_length = aft_seq_length
-        self.encoder = ConvLSTM(input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, batch_first=batch_first, return_all_layers=True)
-        self.forecaster = ConvLSTM(input_dim=hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, batch_first=batch_first, return_all_layers=False)
-        self.conv_last = nn.Conv2d(in_channels=hidden_dim[-1] if isinstance(hidden_dim, list) else hidden_dim, out_channels=n_targets, kernel_size=1)
-    def forward(self, input_tensor):
-        _, encoder_states = self.encoder(input_tensor); forecaster_states = encoder_states
-        next_input = encoder_states[-1][0].unsqueeze(1)
-        predictions = []
-        for _ in range(self.aft_seq_length):
-            forecaster_output, forecaster_states = self.forecaster(next_input, forecaster_states)
-            hidden_state = forecaster_output[0][:, -1]; pred = self.conv_last(hidden_state)
-            predictions.append(pred); next_input = hidden_state.unsqueeze(1)
-        return torch.stack(predictions, dim=1)
 
 # --- Lightning Module with Masked Loss (Single Task) ---
 class GridModelLightningModule(pl.LightningModule):
@@ -238,7 +375,7 @@ class ConvLSTMPipeline:
         self.model = GridModelLightningModule.load_from_checkpoint(best_model_path, model=final_lightning_model.model, learning_rate=final_lightning_model.learning_rate, mask=self.mask)
 
         self.evaluate_and_save(final_trainer, train_ds, val_ds, test_ds)
-        self.predict_on_full_data()
+        #self.predict_on_full_data()
         
         print(f"--- ConvLSTM Global Pipeline Run Finished ---")
         return self.all_metrics

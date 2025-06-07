@@ -33,13 +33,13 @@ convlstm_params:
   batch_size: 16       
   
   trainer:
-    max_epochs: 500
+    max_epochs: 2
     patience_for_early_stopping: 30
     accelerator: "auto"
     enable_progress_bar: True
   
   tuning:
-    n_trials: 1
+    n_trials: 2
     learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
     hidden_dim_size: {choices: [256]} 
     n_layers: {low: 2, high: 3}

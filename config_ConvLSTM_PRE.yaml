@@ -40,12 +40,12 @@ convlstm_params:
   
   tuning:
     n_trials: 1
-    learning_rate: {low: 1.0e-5, high: 1.0e-5, log: True}
+    learning_rate: {low: 5.0e-3, high: 5.0e-3, log: True}
     # For this model, hidden_dim is a list. We will tune the size for all layers together.
-    hidden_dim_size: {choices: [64]} 
+    hidden_dim_size: {choices: [256]} 
     # n_layers and hidden_dim_size will be used to construct the hidden_dim list
     n_layers: {low: 2, high: 3}
-    kernel_size: {choices: [3, 5]} # A single kernel size for all layers
+    kernel_size: {choices: [5, 5]} # A single kernel size for all layers
         
 paths:
   models_base_dir: "models_saved" 
