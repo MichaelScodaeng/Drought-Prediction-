@@ -133,7 +133,7 @@ class CNN3DGlobalPipeline:
         if predictions.ndim == 4 and predictions.shape[1] == 1: predictions = predictions.squeeze(1)
         batch_mask = mask_bool.expand_as(actuals)
         actuals_np = actuals[batch_mask].flatten().cpu().numpy(); preds_np = predictions[batch_mask].flatten().cpu().numpy()
-        return {'rmse': mean_squared_error(actuals_np, preds_np, squared=False), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
+        return {'rmse': mean_squared_error(actuals_np, preds_np), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
 
     def _objective_for_optuna(self, trial, train_loader, val_loader, in_channels, grid_h, grid_w, n_steps_in, n_steps_out):
         cnn_tuning_cfg = self.cfg.get('cnn3d_params', {}).get('tuning', {})

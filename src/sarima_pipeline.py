@@ -102,7 +102,7 @@ class SarimaLocalPipeline:
         finite_mask = np.isfinite(actuals_np) & np.isfinite(predictions_np)
         if np.sum(finite_mask) == 0:
             return {'rmse': np.nan, 'mae': np.nan, 'r2': np.nan}
-        rmse = mean_squared_error(actuals_np[finite_mask], predictions_np[finite_mask], squared=False)
+        rmse = mean_squared_error(actuals_np[finite_mask], predictions_np[finite_mask])
         mae = mean_absolute_error(actuals_np[finite_mask], predictions_np[finite_mask])
         r2 = r2_score(actuals_np[finite_mask], predictions_np[finite_mask])
         return {'rmse': rmse, 'mae': mae, 'r2': r2}

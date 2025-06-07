@@ -273,7 +273,7 @@ class XGBoostLocalPipeline:
             inversed_predictions = inverse_transform_predictions(scaled_preds_df, target_col, fitted_scaler)
             inversed_actuals = inverse_transform_predictions(scaled_actuals_df, target_col, fitted_scaler)
             if inversed_predictions is not None and inversed_actuals is not None:
-                metrics = {'rmse': mean_squared_error(inversed_actuals, inversed_predictions, squared=False), 
+                metrics = {'rmse': mean_squared_error(inversed_actuals, inversed_predictions), 
                            'mae': mean_absolute_error(inversed_actuals, inversed_predictions), 
                            'r2': r2_score(inversed_actuals, inversed_predictions)}
                 print(f"  {loc_identifier} - {split_name.capitalize()} Set: RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}, R2={metrics['r2']:.4f}")

@@ -156,7 +156,7 @@ class XGBoostGlobalPipeline:
 
         if inversed_predictions_val_opt is None or inversed_actuals_val_opt is None: return float('inf')
         
-        rmse = mean_squared_error(inversed_actuals_val_opt, inversed_predictions_val_opt, squared=False)
+        rmse = mean_squared_error(inversed_actuals_val_opt, inversed_predictions_val_opt)
         return rmse
 
     def tune_hyperparameters(self, n_trials=50):
@@ -230,7 +230,7 @@ class XGBoostGlobalPipeline:
         inversed_actuals = inverse_transform_predictions(scaled_actuals_df, target_col, self.scaler)
         
         if inversed_predictions is not None and inversed_actuals is not None:
-            rmse = mean_squared_error(inversed_actuals, inversed_predictions, squared=False)
+            rmse = mean_squared_error(inversed_actuals, inversed_predictions)
             mae = mean_absolute_error(inversed_actuals, inversed_predictions)
             r2 = r2_score(inversed_actuals, inversed_predictions)
             print(f"{data_split.capitalize()} Set Evaluation (Original Scale): RMSE={rmse:.4f}, MAE={mae:.4f}, R2={r2:.4f}")
