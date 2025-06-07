@@ -165,7 +165,7 @@ class ConvLSTMPipeline:
         if actuals.shape[1] == 1: actuals = actuals.squeeze(1)
         batch_mask = mask_bool.expand_as(actuals)
         actuals_np = actuals[batch_mask].flatten().cpu().numpy(); preds_np = preds[batch_mask].flatten().cpu().numpy()
-        return {'rmse': mean_squared_error(actuals_np, preds_np, squared=False), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
+        return {'rmse': mean_squared_error(actuals_np, preds_np), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
 
     def _objective(self, trial, train_loader, val_loader, in_channels, pre_seq_len, aft_seq_len):
         cfg = self.cfg.get('convlstm_params', {}).get('tuning', {})

@@ -179,7 +179,7 @@ class ConvLSTMMultitaskPipeline:
             batch_mask = mask_bool.expand_as(actuals_ch)
             actuals_np = actuals_ch[batch_mask].flatten().cpu().numpy()
             preds_np = preds_ch[batch_mask].flatten().cpu().numpy()
-            metrics = {'rmse': mean_squared_error(actuals_np, preds_np, squared=False), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
+            metrics = {'rmse': mean_squared_error(actuals_np, preds_np), 'mae': mean_absolute_error(actuals_np, preds_np), 'r2': r2_score(actuals_np, preds_np)}
             metrics_by_target[target_name] = metrics
         return metrics_by_target
         # --- END FIX ---
