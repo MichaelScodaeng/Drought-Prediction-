@@ -101,8 +101,10 @@ class SequenceDataset(Dataset):
         
         seq_x = self.features_np[start_pos:end_pos]
         seq_y = self.target_np[end_pos:out_end_pos]
+        print("Shape of seq_x:", seq_x.shape, "Shape of seq_y:", seq_y.shape)
 
         if self.n_steps_out == 1:
+            print("Shape of Squeeezed seq_y:", seq_y.shape)
             return seq_x, seq_y.squeeze() # Return a scalar if only one step
         
         return seq_x, seq_y

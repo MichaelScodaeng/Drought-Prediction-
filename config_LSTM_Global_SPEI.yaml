@@ -17,7 +17,7 @@ data:
       'tmp', 'dtr', 'cld', 'tmx', 
       'tmn', 'wet', 'vap', 'soi', 
       'dmi', 'pdo', 'nino4', 
-      'nino34', 'nino3', 'pre', 'pet', "spei"
+      'nino34', 'nino3', 'pre', 'pet'
     ]
   train_end_date: "2017-12-31"      # Adjusted to give a larger validation set
   validation_end_date: "2020-12-31"
@@ -38,7 +38,7 @@ lstm_params:
 
   # PyTorch Lightning Trainer settings
   trainer:
-    max_epochs: 200
+    max_epochs: 1
     patience_for_early_stopping: 10
     accelerator: "auto"
     enable_progress_bar: True # Good to have on for a single long run

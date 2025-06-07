@@ -33,7 +33,7 @@ convlstm_params:
   batch_size: 16       
   
   trainer:
-    max_epochs: 500
+    max_epochs: 1
     patience_for_early_stopping: 30
     accelerator: "auto"
     enable_progress_bar: True
