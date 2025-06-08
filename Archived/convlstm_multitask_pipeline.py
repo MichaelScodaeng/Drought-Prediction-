@@ -50,6 +50,12 @@ class ConvLSTMCell(nn.Module):
         combined_conv = self.conv(combined); cc_i, cc_f, cc_o, cc_g = torch.split(combined_conv, self.hidden_dim, dim=1)
         i = torch.sigmoid(cc_i); f = torch.sigmoid(cc_f); o = torch.sigmoid(cc_o); g = torch.tanh(cc_g)
         c_next = f * c_cur + i * g; h_next = o * torch.tanh(c_next)
+        # Initialize layer norm if not done yet
+        if self.layer_norm is None:
+            _, _, H, W = h_next.shape
+            self.layer_norm = nn.LayerNorm([self.hidden_dim, H, W], elementwise_affine=True).to(h_next.device)
+
+        h_next = self.layer_norm(h_next)
         return h_next, c_next
     def init_hidden(self, batch_size, image_size):
         height, width = image_size
@@ -108,8 +114,15 @@ class EncodingForecastingConvLSTM(nn.Module):
         predictions = []
         for _ in range(self.aft_seq_length):
             forecaster_output, forecaster_states = self.forecaster(next_input, forecaster_states)
-            hidden_state = forecaster_output[0][:, -1]; pred = self.conv_last(hidden_state)
-            predictions.append(pred); next_input = hidden_state.unsqueeze(1)
+            hidden_state = forecaster_output[0][:, -1]
+            
+            # Residual connection: add input from previous step if dimensions match
+            if hidden_state.shape == next_input.squeeze(1).shape:
+                hidden_state = hidden_state + next_input.squeeze(1)
+
+            pred = self.conv_last(hidden_state)
+            predictions.append(pred)
+            next_input = hidden_state.unsqueeze(1)
         return torch.stack(predictions, dim=1)
 
 # --- Lightning Module for Multitask Grid Models ---
@@ -118,13 +131,16 @@ class GridModelLightningModule(pl.LightningModule):
         super().__init__(); self.model = model; self.learning_rate = learning_rate; self.trial = trial
         self.criterion = nn.MSELoss(reduction='none'); self.register_buffer('mask', mask); self.validation_step_outputs = []
         self.n_targets = n_targets
+        self.register_buffer('task_weights', torch.ones(n_targets))
     def forward(self, x): return self.model(x)
     def _calculate_masked_loss(self, y_hat, y):
         # y_hat shape: (N, T_out, C_out, H, W) | y shape: (N, T_out, C_out, H, W)
         if y_hat.shape[2] != y.shape[2]: # If target channels don't match pred channels
              y_hat = y_hat[:,:,:y.shape[2],:,:] # Align them
-        loss = self.criterion(y_hat, y); masked_loss = loss * self.mask.unsqueeze(0).unsqueeze(0) # Expand mask for broadcasting
-        return masked_loss.sum() / (self.mask.sum() * y.size(0) * y.size(1) + 1e-9)
+        loss = self.criterion(y_hat, y)
+        mask_exp = self.mask.unsqueeze(0).unsqueeze(0)
+        weighted = loss * mask_exp * self.task_weights.view(1, 1, -1, 1, 1)
+        return weighted.sum() / (mask_exp.sum() * y.size(0) * y.size(1) + 1e-9)
     def training_step(self, batch, batch_idx): x, y = batch; return self._calculate_masked_loss(self(x), y)
     def validation_step(self, batch, batch_idx): x, y = batch; loss = self._calculate_masked_loss(self(x), y); self.log('val_loss', loss, on_epoch=True); self.validation_step_outputs.append(loss); return loss
     def predict_step(self, batch, batch_idx, dataloader_idx=0): x, y = batch; return self(x)
@@ -133,7 +149,22 @@ class GridModelLightningModule(pl.LightningModule):
         avg_loss = torch.stack(self.validation_step_outputs).mean(); self.log('val_rmse', torch.sqrt(avg_loss)); self.validation_step_outputs.clear()
         if self.trial: self.trial.report(avg_loss, self.current_epoch);
         if self.trial and self.trial.should_prune(): raise optuna.exceptions.TrialPruned()
-    def configure_optimizers(self): return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        scheduler = {
+            "scheduler": torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=self.learning_rate,
+                total_steps=self.trainer.estimated_stepping_batches,
+                pct_start=0.1,  # 10% warmup
+                anneal_strategy='cos',
+                div_factor=10.0,
+                final_div_factor=1e4,
+            ),
+            "interval": "step",
+            "frequency": 1,
+        }
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
 
 # --- Custom Dataset for Multitask ConvLSTM ---
 class SequenceDatasetConvLSTMMultitask(Dataset):
@@ -184,7 +215,10 @@ class ConvLSTMMultitaskPipeline:
         return metrics_by_target
         # --- END FIX ---
 
-    def _objective(self, trial, train_loader, val_loader, in_channels, pre_seq_len, aft_seq_len, n_targets):
+    def _objective(self, trial, train_ds, val_ds, in_channels, pre_seq_len, aft_seq_len, n_targets,num_workers=2):
+        batch_size = trial.suggest_categorical('batch_size', [8, 16, 32])
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        val_loader = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers)
         cfg = self.cfg.get('convlstm_params', {}).get('tuning', {})
         lr = trial.suggest_float('learning_rate', **cfg.get('learning_rate'))
         n_layers = trial.suggest_int('n_layers', **cfg.get('n_layers'))
@@ -230,20 +264,18 @@ class ConvLSTMMultitaskPipeline:
         if len(train_ds) == 0 or len(val_ds) == 0: return "Failed: Not enough data for sequences"
         
         batch_size = self.cfg.get('convlstm_params',{}).get('batch_size',8); num_workers = 2 if os.name != 'nt' else 0
-        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-        val_loader = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers)
 
         study = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner())
-        study.optimize(lambda t: self._objective(t, train_loader, val_loader, len(features_to_grid), n_in, n_out, len(target_vars)), 
-                       n_trials=self.cfg.get('convlstm_params',{}).get('tuning',{}).get('n_trials', 15))
+        study.optimize(lambda t: self._objective(t, train_ds, val_ds, len(features_to_grid), n_in, n_out, len(target_vars)), 
+                       n_trials=self.cfg.get('convlstm_params',{}).get('tuning',{}).get('n_trials', 15),num_workers=num_workers, show_progress_bar=True)
         self.best_hyperparams = study.best_trial.params
         print(f"Pipeline: Optuna found best params: {self.best_hyperparams}")
         
         best = self.best_hyperparams
         final_model_base = EncodingForecastingConvLSTM(len(features_to_grid), [best['hidden_dim_size']] * best['n_layers'], (best['kernel_size'],best['kernel_size']), best['n_layers'], n_in, n_out, len(target_vars))
         final_lightning_model = GridModelLightningModule(final_model_base, best['learning_rate'], self.mask, n_targets=len(target_vars))
-        full_train_loader = DataLoader(torch.utils.data.ConcatDataset([train_ds, val_ds]), batch_size=batch_size, shuffle=True)
-        
+        full_train_loader = DataLoader(torch.utils.data.ConcatDataset([train_ds, val_ds]), batch_size=self.best_hyperparams["batch_size"], shuffle=True)
+        val_loader = DataLoader(val_ds, batch_size=self.best_hyperparams["batch_size"], shuffle=False)
         ckpt_cb = ModelCheckpoint(dirpath=self.run_models_dir, filename="global-convlstm-multitask-best", monitor="val_loss", mode="min")
         trainer_cfg = self.cfg.get('convlstm_params',{}).get('trainer',{})
         final_trainer = pl.Trainer(max_epochs=trainer_cfg.get('max_epochs',50), callbacks=[ckpt_cb], logger=False, 
@@ -266,7 +298,7 @@ class ConvLSTMMultitaskPipeline:
         with torch.no_grad():
             for split_name, dataset in [('train', train_dataset), ('validation', val_dataset), ('test', test_dataset)]:
                 if len(dataset) > 0:
-                    loader = DataLoader(dataset, batch_size=self.cfg.get('convlstm_params',{}).get('batch_size', 8))
+                    loader = DataLoader(dataset, batch_size=self.best_hyperparams["batch_size"], shuffle=False)
                     y_actual_list, scaled_preds_list = [], []
                     for _, y_batch in loader: y_actual_list.append(y_batch)
                     scaled_preds_list = trainer.predict(self.model, dataloaders=loader)
@@ -293,7 +325,7 @@ class ConvLSTMMultitaskPipeline:
 
         full_dataset = SequenceDatasetConvLSTMMultitask(self.gridded_data, target_indices, n_in, n_out)
         if len(full_dataset) == 0: print("Not enough data for full prediction."); return None
-        full_loader = DataLoader(full_dataset, batch_size=self.cfg.get('convlstm_params',{}).get('batch_size',8))
+        full_loader = DataLoader(full_dataset, batch_size=self.best_hyperparams["batch_size"], shuffle=False)
         
         self.model.eval()
         with torch.no_grad():

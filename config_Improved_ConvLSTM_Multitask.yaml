@@ -39,8 +39,8 @@ convlstm_params:
     precision: 32
   
   tuning:
-    n_trials: 100  # More trials for multitask optimization
-    learning_rate: {low: 1.0e-6, high: 1.0e-4, log: True}
+    n_trials: 200  # More trials for multitask optimization
+    learning_rate: {low: 1.0e-4, high: 1.0e-3, log: True}
     hidden_dim_size: {choices: [64,128,256,512]}
     n_layers: {low: 1, high: 5}
     kernel_size: {choices: [3, 5, 7]}
