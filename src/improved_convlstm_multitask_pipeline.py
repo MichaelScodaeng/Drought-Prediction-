@@ -1082,7 +1082,7 @@ class MultitaskConvLSTMPipeline:
             callbacks=[early_stopping],
             logger=False,
             enable_checkpointing=False,
-            enable_progress_bar=False,
+            enable_progress_bar=True,
             accelerator='auto',
             devices=1,
             gradient_clip_val=1.0,
