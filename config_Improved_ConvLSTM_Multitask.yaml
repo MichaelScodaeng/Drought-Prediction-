@@ -32,19 +32,19 @@ convlstm_params:
   batch_size: 16
   
   trainer:
-    max_epochs: 300
-    patience_for_early_stopping: 30
+    max_epochs: 1000
+    patience_for_early_stopping: 50
     enable_progress_bar: True
     gradient_clip_val: 1.0
     precision: 16
   
   tuning:
     n_trials: 1  # More trials for multitask optimization
-    learning_rate: {low: 1.0e-5, high: 1.0e-3, log: True}
+    learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
     hidden_dim_size: {choices: [32]}
     n_layers: {low: 1, high: 1}
     kernel_size: {choices: [3, 5, 7]}
-    dropout: {low: 0.0, high: 0.4}
+    dropout: {low: 0.1, high: 0.4}
     weight_decay: {low: 1.0e-6, high: 1.0e-3, log: True}
     batch_norm: [true, false]
     teacher_forcing_ratio: {low: 0.3, high: 0.8}
