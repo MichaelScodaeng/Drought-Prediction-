@@ -30,18 +30,18 @@ sequence_params:
   n_steps_out: 1 # You can experiment with predicting more steps, e.g., 3 or 6
 
 convlstm_params:
-  batch_size: 16
+  batch_size: 8
   
   trainer:
-    max_epochs: 300
+    max_epochs: 500
     patience_for_early_stopping: 50
     gradient_clip_val: 1.0
     enable_progress_bar: True
   
   tuning:
-    n_trials: 1
-    learning_rate: {low: 1.0e-5, high: 1.0e-3, log: True}
-    hidden_dim_size: {choices: [32, 64, 128]}
+    n_trials: 20
+    learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
+    hidden_dim_size: {choices: [128,256,512]}
     n_layers: {low: 2, high: 4}
     kernel_size: {choices: [3, 5]}
     dropout: {low: 0.0, high: 0.3}

@@ -29,20 +29,20 @@ sequence_params:
   n_steps_out: 1  # Predict 3 time steps ahead
 
 convlstm_params:
-  batch_size: 16
+  batch_size: 8
   
   trainer:
     max_epochs: 1000
     patience_for_early_stopping: 50
     enable_progress_bar: True
     gradient_clip_val: 1.0
-    precision: 16
+    precision: 32
   
   tuning:
-    n_trials: 1  # More trials for multitask optimization
-    learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
-    hidden_dim_size: {choices: [32]}
-    n_layers: {low: 1, high: 1}
+    n_trials: 100  # More trials for multitask optimization
+    learning_rate: {low: 1.0e-6, high: 1.0e-4, log: True}
+    hidden_dim_size: {choices: [64,128,256,512]}
+    n_layers: {low: 1, high: 5}
     kernel_size: {choices: [3, 5, 7]}
     dropout: {low: 0.1, high: 0.4}
     weight_decay: {low: 1.0e-6, high: 1.0e-3, log: True}
