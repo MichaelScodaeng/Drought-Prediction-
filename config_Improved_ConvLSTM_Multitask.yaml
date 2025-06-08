@@ -40,7 +40,7 @@ convlstm_params:
   
   tuning:
     max_epochs: 50 # Reduced epochs for hyperparameter tuning
-    n_trials: 50  # More trials for multitask optimization
+    n_trials: 20  # More trials for multitask optimization
     learning_rate: {low: 1.0e-4, high: 1.0e-3, log: True}
     hidden_dim_size: {choices: [64,128,256]}
     n_layers: {low: 1, high: 3}
