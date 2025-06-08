@@ -22,7 +22,6 @@ data:
   - nino34
   - nino3
   - pre
-  - pet
   train_end_date: '2018-12-31'
   validation_end_date: '2020-12-31'
 feature_engineering:

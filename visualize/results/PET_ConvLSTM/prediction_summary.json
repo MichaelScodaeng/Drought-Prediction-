@@ -1,0 +1,10 @@
+{
+    "total_predictions": 262056,
+    "valid_predictions": 262056,
+    "mean_actual": 105.28992462158203,
+    "mean_predicted": 106.87064361572266,
+    "mean_absolute_error": 3.8210556507110596,
+    "rmse": 5.23206901550293,
+    "r2_score": 0.9324839115142822,
+    "units": "Original pet units (inverse transformed)"
+}

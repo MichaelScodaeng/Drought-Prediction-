@@ -14,7 +14,7 @@ data:
       'tmp', 'dtr', 'cld', 'tmx', 
       'tmn', 'wet', 'vap', 'soi', 
       'dmi', 'pdo', 'nino4', 
-      'nino34', 'nino3', 'pre', 'pet' # Added pre and pet as potential predictors
+      'nino34', 'nino3', 'pet' # Added pre and pet as potential predictors
     ]
   train_end_date: "2018-12-31"        # Last date for the training set
   validation_end_date: "2020-12-31"   # Last date for the validation set (test set starts after this)

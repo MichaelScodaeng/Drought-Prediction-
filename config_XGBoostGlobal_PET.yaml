@@ -11,7 +11,7 @@ data:
   lat_column: "lat"
   lon_column: "lon"
   # From our inspection, these are good initial predictors for SPEI
-  predictor_columns: ['tmp', 'dtr', 'cld', 'tmx', 'tmn', 'wet', 'vap', 'soi', 'dmi', 'pdo', 'nino4', 'nino34', 'nino3',"pre","pet"]
+  predictor_columns: ['tmp', 'dtr', 'cld', 'tmx', 'tmn', 'wet', 'vap', 'soi', 'dmi', 'pdo', 'nino4', 'nino34', 'nino3',"pre"]
   # Define split points. Given data up to 2023-12-16:
   # Let's use ~1901-2018 for train, 2019-2020 for val, 2021-2023 for test
   # (Adjust these based on how much data you want for each set)

@@ -1,0 +1,10 @@
+{
+    "learning_rate": 0.0005709059347965983,
+    "n_layers": 2,
+    "hidden_dim_size": 32,
+    "kernel_size": 3,
+    "dropout": 0.20777268958027198,
+    "weight_decay": 1.8384913353914815e-06,
+    "batch_norm": true,
+    "teacher_forcing_ratio": 0.6226343542837747
+}

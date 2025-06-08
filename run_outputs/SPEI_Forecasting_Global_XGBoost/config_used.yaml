@@ -23,22 +23,10 @@ data:
   - nino3
   - pre
   - pet
-  - spei
   train_end_date: '2018-12-31'
   validation_end_date: '2020-12-31'
 feature_engineering:
   lag_periods:
-  - 1
-  - 2
-  - 3
-  - 4
-  - 5
-  - 6
-  - 7
-  - 8
-  - 9
-  - 10
-  - 11
   - 12
   post_sequence_length: 1
   date_features_to_extract:
