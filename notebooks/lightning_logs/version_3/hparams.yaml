@@ -1,0 +1,5 @@
+gradient_clip_val: 1.0
+learning_rate: 0.0004932058984795783
+lr_scheduler: cosine
+teacher_forcing_ratio: 0.7030845447843528
+weight_decay: 4.0056141037765296e-06

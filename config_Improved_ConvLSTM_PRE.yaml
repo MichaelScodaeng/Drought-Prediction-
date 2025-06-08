@@ -2,8 +2,8 @@
 # Configuration file for the Encoder-Decoder ConvLSTM model
 
 project_setup:
-  experiment_name: "PRE_ConvLSTM_EncoderDecoder_Run"
-  target_variable: "pre"
+  experiment_name: "PET_ConvLSTM_EncoderDecoder_Run"
+  target_variable: "pet"
   random_seed: 42
 
 data:
@@ -30,10 +30,10 @@ sequence_params:
   n_steps_out: 1 # You can experiment with predicting more steps, e.g., 3 or 6
 
 convlstm_params:
-  batch_size: 32
+  batch_size: 16
   
   trainer:
-    max_epochs: 300
+    max_epochs: 2
     patience_for_early_stopping: 50
     gradient_clip_val: 1.0
     enable_progress_bar: True
@@ -54,7 +54,7 @@ paths:
 
 results:
   output_base_dir: "run_outputs" 
-  metrics_filename: "global_convlstm_encdec_metrics.json"
-  predictions_filename: "global_convlstm_encdec_full_predictions.csv"
+  metrics_filename: "global_convlstm_improved_metrics.json"
+  predictions_filename: "global_convlstm_improved_full_predictions.csv"
   config_filename: "config_used_for_run.yaml"
 

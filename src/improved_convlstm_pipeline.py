@@ -638,7 +638,13 @@ class ImprovedConvLSTMPipeline:
                 preds = torch.tensor(preds, dtype=torch.float32)
             if not isinstance(actuals, torch.Tensor):
                 actuals = torch.tensor(actuals, dtype=torch.float32)
-        
+        # Squeeze singleton channel dimension if present
+        if preds.dim() == 4 and preds.shape[1] == 1:
+            preds = preds.squeeze(1)
+        if actuals.dim() == 4 and actuals.shape[1] == 1:
+            actuals = actuals.squeeze(1)
+
+        mask_bool = mask.bool().to(actuals.device)
         mask_bool = mask.bool().to(actuals.device)
         
         # Handle dimension alignment
@@ -738,7 +744,7 @@ class ImprovedConvLSTMPipeline:
             enable_progress_bar=False,
             accelerator='auto',
             devices=1,
-            gradient_clip_val=1.0
+            gradient_clip_val=1.0,
         )
         
         try:
@@ -908,8 +914,8 @@ class ImprovedConvLSTMPipeline:
         final_trainer = pl.Trainer(
             max_epochs=trainer_cfg.get('max_epochs', 100),
             callbacks=[ckpt_callback, lr_monitor, early_stopping],
-            logger=False,
-            enable_progress_bar=trainer_cfg.get('enable_progress_bar', True),
+            logger=True,
+            enable_progress_bar=True,
             accelerator='auto',
             devices=1,
             gradient_clip_val=1.0,
@@ -984,7 +990,7 @@ class ImprovedConvLSTMPipeline:
                     
                     # Get predictions
                     with torch.no_grad():
-                        pred = trainer.predict(self.model, dataloaders=[DataLoader([batch], batch_size=1)])[0]
+                        pred = self.model(x)
                     
                     y_actual_list.append(y.cpu())
                     y_pred_list.append(pred.cpu())
@@ -1054,7 +1060,8 @@ class ImprovedConvLSTMPipeline:
         
         # Generate predictions
         self.model.eval()
-        trainer = pl.Trainer(accelerator='auto', devices=1, logger=False)
+        trainer = pl.Trainer(accelerator='auto', devices=1, logger=False,
+            enable_progress_bar=True,)
         
         with torch.no_grad():
             predicted_grids_list = trainer.predict(self.model, dataloaders=full_loader)

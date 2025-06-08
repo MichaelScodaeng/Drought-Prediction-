@@ -1,0 +1,56 @@
+# config_ConvLSTM_Multitask.yaml
+# Configuration file for the Multitask Encoder-Decoder ConvLSTM model
+
+project_setup:
+  experiment_name: "SPEI_ConvLSTM_Multitask_Run"
+  # --- MULTITASK CHANGE: Define multiple target variables ---
+  target_variables: ['pet', 'pre'] # The model will predict all of these
+  random_seed: 42
+
+data:
+  raw_data_path: "data/full.csv"
+  time_column: "time"
+  lat_column: "lat"
+  lon_column: "lon"
+  # Features to grid should include all potential targets and predictors
+  features_to_grid: [
+      'spei', 'pet', 'pre', # Ensure targets are here
+      'tmp', 'dtr', 'cld', 'tmx', 
+      'tmn', 'wet', 'vap', 'soi', 
+      'dmi', 'pdo', 'nino4', 'nino34', 'nino3', 
+    ]
+  train_end_date: "2017-12-31"
+  validation_end_date: "2020-12-31"
+
+gridding:
+  fixed_step: 0.5 
+
+sequence_params:
+  n_steps_in: 12      # Input sequence length (pre_seq_length)
+  n_steps_out: 1      # Forecast horizon (aft_seq_length)
+
+convlstm_params:
+  batch_size: 16       
+  
+  trainer:
+    max_epochs: 2
+    patience_for_early_stopping: 30
+    accelerator: "auto"
+    enable_progress_bar: True
+  
+  tuning:
+    n_trials: 2
+    learning_rate: {low: 1.0e-5, high: 1.0e-4, log: True}
+    hidden_dim_size: {choices: [256]} 
+    n_layers: {low: 2, high: 3}
+    kernel_size: {choices: [3, 5]}
+        
+paths:
+  models_base_dir: "models_saved" 
+
+results:
+  output_base_dir: "run_outputs" 
+  metrics_filename: "global_convlstm_multitask_metrics.json"
+  predictions_filename: "global_convlstm_multitask_full_predictions.csv"
+  config_filename: "config_used_for_run.yaml"
+

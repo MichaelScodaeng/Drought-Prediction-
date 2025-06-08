@@ -1,0 +1,10 @@
+{
+    "total_predictions": 262056,
+    "valid_predictions": 262056,
+    "mean_actual": 0.0029971397016197443,
+    "mean_predicted": -0.006322919391095638,
+    "mean_absolute_error": 0.8280439376831055,
+    "rmse": 1.016560435295105,
+    "r2_score": -0.037690162658691406,
+    "units": "Original spei units (inverse transformed)"
+}

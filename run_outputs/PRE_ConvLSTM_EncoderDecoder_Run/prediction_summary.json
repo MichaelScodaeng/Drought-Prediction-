@@ -1,0 +1,10 @@
+{
+    "total_predictions": 262056,
+    "valid_predictions": 262056,
+    "mean_actual": 136.59742736816406,
+    "mean_predicted": 80.8563232421875,
+    "mean_absolute_error": 68.92839813232422,
+    "rmse": 117.5217056274414,
+    "r2_score": 0.24962574243545532,
+    "units": "Original pre units (inverse transformed)"
+}
