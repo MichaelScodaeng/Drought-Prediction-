@@ -1078,7 +1078,7 @@ class MultitaskConvLSTMPipeline:
         )
         
         trainer = pl.Trainer(
-            max_epochs=trainer_params.get('max_epochs', 50),
+            max_epochs=self.cfg['convlstm_params']['tuning'].get('max_epochs', 40),
             callbacks=[early_stopping],
             logger=False,
             enable_checkpointing=False,
@@ -1256,6 +1256,7 @@ class MultitaskConvLSTMPipeline:
         )
         
         trainer_cfg = self.cfg.get('convlstm_params', {}).get('trainer', {})
+        trainer_cfg = self.cfg['convlstm_params']['trainer']
         final_trainer = pl.Trainer(
             max_epochs=trainer_cfg.get('max_epochs', 100),
             callbacks=[ckpt_callback, lr_monitor, early_stopping],
@@ -1317,7 +1318,7 @@ class MultitaskConvLSTMPipeline:
         print(f"Results saved to: {self.run_output_dir}")
         #save whole class instance
         import pickle
-        
+
         with open(os.path.join(self.run_output_dir, 'pipeline_instance.pkl'), 'wb') as f:
             pickle.dump(self, f)
         

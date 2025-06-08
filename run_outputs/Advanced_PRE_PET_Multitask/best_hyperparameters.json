@@ -1,13 +1,13 @@
 {
-    "learning_rate": 0.00016234453047498938,
+    "learning_rate": 0.00023166833209732862,
     "n_layers": 1,
-    "hidden_dim_size": 512,
+    "hidden_dim_size": 64,
     "kernel_size": 3,
-    "dropout": 0.2841633945481501,
-    "weight_decay": 0.0009392810563355156,
-    "batch_norm": true,
-    "teacher_forcing_ratio": 0.437178046255531,
-    "multitask_fusion": "concat",
-    "weight_pre": 1.134917511261547,
-    "weight_pet": 1.7195918529957337
+    "dropout": 0.018627385619300486,
+    "weight_decay": 4.9448597329855626e-06,
+    "batch_norm": false,
+    "teacher_forcing_ratio": 0.5660439907877823,
+    "multitask_fusion": "separate",
+    "weight_pre": 0.7484619141862818,
+    "weight_pet": 0.6153130684765092
 }
