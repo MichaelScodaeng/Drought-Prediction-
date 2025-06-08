@@ -1266,7 +1266,13 @@ class MultitaskConvLSTMPipeline:
             gradient_clip_val=1.0,
             precision=16 if torch.cuda.is_available() else 32
         )
-        
+        # THIS IS THE MISSING CRITICAL STEP!
+        print("Training final model with best hyperparameters...")
+        final_trainer.fit(
+            model=final_lightning_model,
+            train_dataloaders=full_train_loader,
+            val_dataloaders=val_loader  # Use original val_loader for monitoring
+        )
         # Load best model
         best_model_path = ckpt_callback.best_model_path
         print(f"Best model saved at: {best_model_path}")
@@ -1278,7 +1284,24 @@ class MultitaskConvLSTMPipeline:
             mask=self.mask,
             target_variables=self.target_variables
         )
+        # Check if model path is None (safety check)
+        if best_model_path is None:
+            print("WARNING: No model was saved during training!")
+            # Manual save as backup
+            manual_path = os.path.join(self.run_models_dir, 'manual_final_model.ckpt')
+            final_trainer.save_checkpoint(manual_path)
+            best_model_path = manual_path
+            print(f"Manually saved model to: {manual_path}")
         
+        # Load the trained model
+        self.model = MultitaskGridModelLightningModule.load_from_checkpoint(
+            best_model_path,
+            model=final_lightning_model.model,
+            learning_rate=final_lightning_model.learning_rate,
+            mask=self.mask,
+            target_variables=self.target_variables
+        )
+    
         # Evaluate model
         self.evaluate_and_save(final_trainer, train_ds, val_ds, test_ds)
         
@@ -1292,6 +1315,11 @@ class MultitaskConvLSTMPipeline:
         
         print(f"\n--- {'Multitask' if self.is_multitask else 'Single Task'} ConvLSTM Pipeline Completed ---")
         print(f"Results saved to: {self.run_output_dir}")
+        #save whole class instance
+        import pickle
+        
+        with open(os.path.join(self.run_output_dir, 'pipeline_instance.pkl'), 'wb') as f:
+            pickle.dump(self, f)
         
         return self.all_metrics
 
@@ -1628,7 +1656,63 @@ def run_improved_convlstm_pipeline(config_path="config.yaml"):
 def load_trained_model(model_path, config_path="config.yaml"):
     """Backward compatible function for loading models"""
     return load_multitask_trained_model(model_path, config_path)
+def fix_pipeline_directories(config_file):
+    """Fix the directory path issue in the pipeline"""
+    
+    # Get the actual directory where your config file is located
+    config_dir = os.path.dirname(os.path.abspath(config_file))
+    print(f"Config directory: {config_dir}")
+    
+    # Create safe output directories
+    safe_dirs = {
+        'run_outputs': os.path.join(config_dir, 'run_outputs'),
+        'models_saved': os.path.join(config_dir, 'models_saved'), 
+        'logs': os.path.join(config_dir, 'logs')
+    }
+    
+    # Create directories with write permissions
+    for name, path in safe_dirs.items():
+        try:
+            os.makedirs(path, exist_ok=True)
+            
+            # Test write permissions
+            test_file = os.path.join(path, 'test.tmp')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+            print(f"✅ {name}: {path}")
+            
+        except Exception as e:
+            print(f"❌ Cannot create {name} at {path}: {e}")
+            # Fallback to temp directory
+            safe_dirs[name] = os.path.join(tempfile.gettempdir(), f'multitask_{name}')
+            os.makedirs(safe_dirs[name], exist_ok=True)
+            print(f"⚠️  Using temp directory for {name}: {safe_dirs[name]}")
+    
+    return safe_dirs
 
+def run_pipeline_with_fixed_paths(config_file):
+    """Run pipeline with corrected directory paths"""
+    
+    # Fix directories first
+    safe_dirs = fix_pipeline_directories(config_file)
+    
+    # Import and create pipeline
+    from improved_convlstm_multitask_pipeline import MultitaskConvLSTMPipeline
+    
+    # Create pipeline
+    pipeline = MultitaskConvLSTMPipeline(config_file)
+    
+    # CRITICAL FIX: Override the problematic directory paths
+    pipeline.run_output_dir = safe_dirs['run_outputs']
+    pipeline.run_models_dir = safe_dirs['models_saved']
+    
+    print(f"Fixed paths:")
+    print(f"  Output dir: {pipeline.run_output_dir}")
+    print(f"  Models dir: {pipeline.run_models_dir}")
+    
+    # Now run the pipeline
+    return pipeline.run_pipeline()
 # Example usage
 if __name__ == "__main__":
     # Example: Single target (backward compatible)
