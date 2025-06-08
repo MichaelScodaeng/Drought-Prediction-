@@ -142,7 +142,7 @@ class LSTMPyTorchLightningLocalPipeline:
         lightning_model = LSTMLightningModule(model, learning_rate, trial=trial)
         early_stopping_callback = EarlyStopping(monitor="val_loss", patience=self.cfg.get('lstm_params',{}).get('trainer',{}).get('patience_for_early_stopping', 5))
         trainer_params = self.cfg.get('lstm_params', {}).get('trainer', {})
-        trainer = pl.Trainer(max_epochs=trainer_params.get('max_epochs', 50), callbacks=[early_stopping_callback], logger=False,
+        trainer = pl.Trainer(max_epochs=1, callbacks=[early_stopping_callback], logger=False,
             enable_checkpointing=False, enable_progress_bar=trainer_params.get('enable_progress_bar', False), accelerator=trainer_params.get('accelerator', 'auto'), devices=1)
         try:
             trainer.fit(model=lightning_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
