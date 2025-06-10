@@ -15,7 +15,7 @@ data:
   # Define split points. Given data up to 2023-12-16:
   # Let's use ~1901-2018 for train, 2019-2020 for val, 2021-2023 for test
   # (Adjust these based on how much data you want for each set)
-  train_end_date: "2018-12-31"
+  train_end_date: "2017-12-31"
   validation_end_date: "2020-12-31"
 
 feature_engineering:
@@ -45,7 +45,7 @@ model_params:
     colsample_bytree: 0.8
     # Hyperparameter tuning settings (e.g., for Optuna or GridSearchCV)
     tuning:
-      n_trials_optuna: 3 # Number of trials for Optuna
+      n_trials_optuna: 100 # Number of trials for Optuna
       # Or define ranges for GridSearchCV/RandomizedSearchCV
 
 evaluation:

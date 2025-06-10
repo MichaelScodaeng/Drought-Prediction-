@@ -23,10 +23,21 @@ data:
   - nino3
   - pre
   - pet
-  train_end_date: '2018-12-31'
+  train_end_date: '2017-12-31'
   validation_end_date: '2020-12-31'
 feature_engineering:
   lag_periods:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
   - 12
   post_sequence_length: 1
   date_features_to_extract:
@@ -46,7 +57,7 @@ model_params:
     subsample: 0.8
     colsample_bytree: 0.8
     tuning:
-      n_trials_optuna: 3
+      n_trials_optuna: 20
 evaluation:
   metrics:
   - rmse

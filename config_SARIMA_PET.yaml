@@ -14,7 +14,7 @@ data:
   # --- Time Splits ---
   # Defines the periods for training, validation (used for fitting), and testing.
   # The SARIMA pipeline fits the model on train+validation data and forecasts over the test period.
-  train_end_date: "2018-12-31"              # Last date for the initial training set used by auto_arima.
+  train_end_date: "2017-12-31"              # Last date for the initial training set used by auto_arima.
   validation_end_date: "2020-12-31"         # Last date for the validation set. The final model is fit on data up to this point.
                                             # The test set begins on the day after this date.
 

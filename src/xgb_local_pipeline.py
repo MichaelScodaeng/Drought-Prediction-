@@ -4,7 +4,7 @@ import yaml
 import os
 import joblib
 import xgboost as xgb
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import root_mean_squared_error, mean_absolute_error, r2_score
 import json
 # import matplotlib.pyplot as plt # Not strictly needed for this class functionality
 
@@ -273,7 +273,7 @@ class XGBoostLocalPipeline:
             inversed_predictions = inverse_transform_predictions(scaled_preds_df, target_col, fitted_scaler)
             inversed_actuals = inverse_transform_predictions(scaled_actuals_df, target_col, fitted_scaler)
             if inversed_predictions is not None and inversed_actuals is not None:
-                metrics = {'rmse': mean_squared_error(inversed_actuals, inversed_predictions), 
+                metrics = {'rmse': root_mean_squared_error(inversed_actuals, inversed_predictions), 
                            'mae': mean_absolute_error(inversed_actuals, inversed_predictions), 
                            'r2': r2_score(inversed_actuals, inversed_predictions)}
                 print(f"  {loc_identifier} - {split_name.capitalize()} Set: RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}, R2={metrics['r2']:.4f}")
