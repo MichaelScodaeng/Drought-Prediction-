@@ -6,6 +6,7 @@ import joblib
 import xgboost as xgb
 from sklearn.metrics import root_mean_squared_error, mean_absolute_error, r2_score
 import json
+import optuna
 # import matplotlib.pyplot as plt # Not strictly needed for this class functionality
 
 # Assuming these are in src/ or PYTHONPATH is set for the notebook
@@ -39,14 +40,16 @@ class XGBoostLocalPipeline:
         self.experiment_name = self.cfg.get('project_setup', {}).get('experiment_name', 'local_xgb_experiment')
         self.project_root_for_paths = os.path.dirname(self.config_path_abs)
 
-        results_base_cfg = self.cfg.get('results',{}).get('output_base_dir', 'run_outputs')
+        results_base_cfg = self.cfg.get('paths',{}).get('output_base_dir', 'run_outputs')
         self.run_output_dir = os.path.join(self.project_root_for_paths, results_base_cfg, self.experiment_name + "_local")
         
         models_base_dir_cfg = self.cfg.get('paths', {}).get('models_base_dir', 'models_saved')
         self.run_models_dir_base = os.path.join(self.project_root_for_paths, models_base_dir_cfg, self.experiment_name + "_local")
+        print("self.run_models_dir_base, ", self.run_models_dir_base)
+        print("run_output_dir, ", self.run_output_dir)
 
         # Directory for per-location full predictions
-        per_loc_preds_dir_name = self.cfg.get('results', {}).get('per_location_predictions_dir', 'per_location_full_predictions')
+        per_loc_preds_dir_name = self.cfg.get('paths', {}).get('per_location_predictions_dir', 'per_location_full_predictions')
         self.per_location_predictions_output_dir = os.path.join(self.run_output_dir, per_loc_preds_dir_name)
 
 
@@ -64,7 +67,48 @@ class XGBoostLocalPipeline:
         if relative_path_from_config_value is None: return None
         if os.path.isabs(relative_path_from_config_value): return relative_path_from_config_value
         return os.path.abspath(os.path.join(self.project_root_for_paths, relative_path_from_config_value))
+    
+    def _remove_non_lag_features(self, df, location_id="Unknown"):
+        """
+        Removes features that do not contain '_lag' to prevent data leakage.
+        Keeps time, target, and coordinates intact.
+        """
+        time_col = self.cfg['data']['time_column']
+        target_col = self.cfg['project_setup']['target_variable']
+        lat_col = self.cfg.get('data', {}).get('lat_column', 'lat')
+        lon_col = self.cfg.get('data', {}).get('lon_column', 'lon')
 
+        safe_cols = [time_col, target_col, lat_col, lon_col]
+        lag_cols = [col for col in df.columns if '_lag' in col]
+        keep_cols = list(set(lag_cols + safe_cols))
+
+        dropped_cols = [col for col in df.columns if col not in keep_cols and col!="month" and col!="year"]
+        if dropped_cols:
+            print(f"  [Leakage Prevention] {location_id}: Dropping non-lag features: {dropped_cols}")
+
+        return df[keep_cols].copy()
+    def _tune_xgboost_model(self, X_train, y_train, X_val, y_val):
+        def objective(trial):
+            params = {
+                'objective': 'reg:squarederror',
+                'eval_metric': 'rmse',
+                'n_estimators': trial.suggest_int('n_estimators', 50, 300),
+                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+                'max_depth': trial.suggest_int('max_depth', 3, 10),
+                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+                'tree_method': 'hist',
+            }
+            model = xgb.XGBRegressor(**params, early_stopping_rounds=15)
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            preds = model.predict(X_val)
+            return root_mean_squared_error(y_val, preds)
+
+        study = optuna.create_study(direction='minimize')
+        study.optimize(objective, n_trials=self.cfg.get('model_params', {}).get('optuna_trials', 20))
+        print(f"    [Optuna] Best hyperparameters: {study.best_params}")
+        return study.best_params
+    
     def _load_full_data(self):
         print("Local Pipeline: Loading full raw data...")
         relative_raw_data_path = self.cfg.get('data', {}).get('raw_data_path')
@@ -101,7 +145,9 @@ class XGBoostLocalPipeline:
 
         # 1. Engineer features on the full raw data for this location
         location_data_featured = location_data_raw_df.sort_values(by=self.cfg['data']['time_column']).copy()  # Sort by time column
-        location_data_featured = engineer_features(location_data_raw_df.copy(), self.cfg)
+        engineered = engineer_features(location_data_raw_df.copy(), self.cfg)
+        location_data_featured = self._remove_non_lag_features(engineered, loc_identifier)
+
         if location_data_featured.empty:
             print(f"    Skipping full prediction for {loc_identifier}: feature engineering resulted in empty data.")
             return
@@ -196,9 +242,9 @@ class XGBoostLocalPipeline:
             print(f"Warning: No training data for {loc_identifier} after split. Skipping this location.")
             return None
 
-        train_df_featured = engineer_features(train_df_raw.copy(), self.cfg)
-        val_df_featured = engineer_features(val_df_raw.copy(), self.cfg)
-        test_df_featured = engineer_features(test_df_raw.copy(), self.cfg)
+        train_df_featured = self._remove_non_lag_features(engineer_features(train_df_raw.copy(), self.cfg), loc_identifier)
+        val_df_featured = self._remove_non_lag_features(engineer_features(val_df_raw.copy(), self.cfg), loc_identifier)
+        test_df_featured = self._remove_non_lag_features(engineer_features(test_df_raw.copy(), self.cfg), loc_identifier)
         
         if train_df_featured.empty:
             print(f"Warning: Training data empty after feature engineering for {loc_identifier}. Skipping.")
@@ -238,18 +284,9 @@ class XGBoostLocalPipeline:
 
         model_input_columns_for_this_loc = X_train.columns.tolist() # Store for full prediction
 
-        model_params_xgb_config = self.cfg.get('model_params', {}).get('global_xgboost', {}) # Use global_xgboost params for each local
-        xgb_model_params = {
-            'objective': model_params_xgb_config.get('objective', 'reg:squarederror'),
-            'eval_metric': model_params_xgb_config.get('eval_metric', 'rmse'),
-            'n_estimators': model_params_xgb_config.get('n_estimators', 100),
-            'learning_rate': model_params_xgb_config.get('learning_rate', 0.1),
-            'max_depth': model_params_xgb_config.get('max_depth', 5),
-            'subsample': model_params_xgb_config.get('subsample', 0.8),
-            'colsample_bytree': model_params_xgb_config.get('colsample_bytree', 0.8),
-            'random_state': self.cfg.get('project_setup', {}).get('random_seed', 42),
-            'tree_method': 'hist'}
-        model = xgb.XGBRegressor(**xgb_model_params,early_stopping_rounds = 10)
+        print(f"  Tuning XGBoost hyperparameters for {loc_identifier}...")
+        best_params = self._tune_xgboost_model(X_train, y_train, X_val, y_val)
+        model = xgb.XGBRegressor(**best_params, early_stopping_rounds=10)
         fit_params = {'verbose': False}
         if xgb.__version__ >= '0.90' and not X_val.empty and not y_val.empty :
              fit_params['eval_set'] = [(X_val, y_val)]
@@ -258,6 +295,8 @@ class XGBoostLocalPipeline:
 
         local_model_dir = os.path.join(self.run_models_dir_base, "local_models")
         os.makedirs(local_model_dir, exist_ok=True)
+        
+        model_params_xgb_config = self.cfg.get('model_params', {}).get('global_xgboost', {})
         model_filename_base = model_params_xgb_config.get('model_filename', 'xgboost_model.json')
         model_save_path = os.path.join(local_model_dir, f"{loc_identifier}_{model_filename_base}")
         try: model.save_model(model_save_path)
@@ -282,7 +321,7 @@ class XGBoostLocalPipeline:
         
         # Generate and save full predictions for this location
         self._predict_and_save_full_for_location(location_data_raw_df, loc_identifier, model, fitted_scaler, model_input_columns_for_this_loc)
-        
+        location_metrics_summary['best_params'] = best_params
         return location_metrics_summary
 
     def run_pipeline(self):

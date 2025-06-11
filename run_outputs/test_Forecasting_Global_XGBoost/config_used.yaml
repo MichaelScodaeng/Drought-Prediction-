@@ -1,0 +1,69 @@
+project_setup:
+  project_name: test_Forecasting_Global_XGBoost
+  random_seed: 42
+  target_variable: pet
+paths:
+  models_base_dir: ../../models_saved
+  output_base_dir: ../../run_outputs
+data:
+  raw_data_path: ../../data/full.csv
+  time_column: time
+  lat_column: lat
+  lon_column: lon
+  predictor_columns:
+  - tmp
+  - dtr
+  - cld
+  - tmx
+  - tmn
+  - wet
+  - vap
+  - soi
+  - dmi
+  - pdo
+  - nino4
+  - nino34
+  - nino3
+  - pre
+  train_end_date: '2017-12-31'
+  validation_end_date: '2020-12-31'
+feature_engineering:
+  lag_periods:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  post_sequence_length: 1
+  date_features_to_extract:
+  - month
+  - year
+scaling:
+  method: robust
+  scaler_filename: models_saved/robust_scaler.joblib
+model_params:
+  global_xgboost:
+    objective: reg:squarederror
+    model_filename: my_xgb_model.json
+    eval_metric: rmse
+    n_estimators: 100
+    learning_rate: 0.1
+    max_depth: 5
+    subsample: 0.8
+    colsample_bytree: 0.8
+    tuning:
+      n_trials_optuna: 1
+evaluation:
+  metrics:
+  - rmse
+  - mae
+  - r2_score
+logging:
+  experiment_name: Global_XGBoost_on_test

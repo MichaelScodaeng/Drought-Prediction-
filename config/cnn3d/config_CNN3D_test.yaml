@@ -1,0 +1,68 @@
+# config_CNN3D_SPEI.yaml
+# Configuration file for the CNN3DPipeline
+
+project_setup:
+  experiment_name: "CNN3D_test_Run"
+  target_variable: "pre"
+  random_seed: 42
+
+gridding:
+  fixed_step: 0.5 
+data:
+  raw_data_path: "data/full.csv"
+  time_column: "time"
+  lat_column: "lat"
+  lon_column: "lon"
+  predictor_columns: [
+      'tmp', 'dtr', 'cld', 'tmx', 'tmn', 'wet', 
+      'vap', 'soi', 'dmi', 'pdo', 'nino4', 
+      'nino34', 'nino3', 'pet', 'pre', 
+  ]
+  features_to_grid: [
+    'tmp', 'dtr', 'cld', 'tmx', 
+    'tmn', 'wet', 'vap', 'soi', 
+    'dmi', 'pdo', 'nino4', 
+    'nino34', 'nino3', 'pre', 'pet'
+  ]
+  train_end_date: "2017-12-31"
+  validation_end_date: "2020-12-31"
+  scaler_path: "models_saved/CNN3D_SPEI_Run/cnn3d_scaler.joblib"
+scaling:
+  method: "robust"
+  scaler_filename: "cnn3d_scaler.joblib"
+
+cnn3d_params:
+  n_steps_in: 12
+  grid_h: 29        # Height of the spatial grid (adjust based on your data)
+  grid_w: 16        # Width of the spatial grid
+  batch_size: 8
+  n_conv_layers: 2
+  hidden_channels: 16
+  kernel_size: [3, 3, 3]
+  learning_rate: 0.001
+  dropout: 0.25
+  use_batchnorm: true
+  max_epochs: 2
+  early_stopping: true
+  max_epochs_tune: 1
+  patience: 15
+  
+
+optuna_tuning:
+  n_trials: 2
+  search_space:
+    learning_rate: {low: 1.0e-5, high: 1.0e-2, log: true}
+    hidden_channels: [8, 16, 32]
+    n_conv_layers: {low: 1, high: 3}
+    batch_size: [4, 8, 16]
+    kernel_size: {low: 2, high: 5}
+
+paths:
+  models_base_dir: "models_saved"
+  results_dir: "run_outputs"
+
+results:
+  metrics_filename: "cnn3d_model_metrics.json"
+  predictions_filename: "cnn3d_full_predictions.csv"
+  tensorboard_log_dir: "tensorboard_logs"
+  config_filename: "config_used_for_run.yaml"

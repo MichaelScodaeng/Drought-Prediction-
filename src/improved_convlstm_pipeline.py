@@ -531,7 +531,7 @@ class EnhancedSequenceDatasetConvLSTM(Dataset):
         
         # Data augmentation during training
         if self.augment:
-            # Add small amount of Gaussian noise
+            '''# Add small amount of Gaussian noise
             if torch.rand(1) < 0.5:
                 noise = torch.randn_like(seq_x) * self.noise_level
                 seq_x = seq_x + noise
@@ -540,7 +540,8 @@ class EnhancedSequenceDatasetConvLSTM(Dataset):
             if torch.rand(1) < 0.3:
                 seq_x = torch.flip(seq_x, dims=[-1])
                 seq_y = torch.flip(seq_y, dims=[-1])
-        
+            '''
+            pass # Placeholder for future augmentations
         return seq_x, seq_y
 
 # --- Enhanced Pipeline Class ---
@@ -550,7 +551,7 @@ class ImprovedConvLSTMPipeline:
         self.cfg = load_config(self.config_path_abs)
         
         self.experiment_name = self.cfg.get('project_setup', {}).get('experiment_name', 'improved_convlstm_experiment')
-        self.project_root_for_paths = os.path.dirname(self.config_path_abs)
+        self.project_root_for_paths = os.path.join(os.path.dirname(self.config_path_abs),"..","..")
         self.run_output_dir = os.path.join(self.project_root_for_paths, 'run_outputs', self.experiment_name)
         self.run_models_dir = os.path.join(self.project_root_for_paths, 'models_saved', self.experiment_name)
         
@@ -735,9 +736,9 @@ class ImprovedConvLSTMPipeline:
             patience=trainer_params.get('patience_for_early_stopping', 10),
             min_delta=1e-6
         )
-        
+        tuning_cfg = self.cfg.get('convlstm_params', {}).get('tuning', {})
         trainer = pl.Trainer(
-            max_epochs=trainer_params.get('max_epochs', 50),
+            max_epochs=tuning_cfg.get('max_epochs', 50),
             callbacks=[early_stopping],
             logger=False,
             enable_checkpointing=False,
@@ -764,9 +765,11 @@ class ImprovedConvLSTMPipeline:
             return "Failed: Dependencies not found."
         
         print(f"\n--- Starting Improved ConvLSTM Pipeline ---")
-        
+        import joblib
         # Load and prepare data
         raw_path = self._get_abs_path_from_config_value(self.cfg.get('data', {}).get('raw_data_path'))
+        scaler_path = self._get_abs_path_from_config_value(self.cfg.get('data', {}).get('scaler_path'))
+        self.target_scaler = joblib.load(scaler_path)
         self.full_df_raw = load_and_prepare_data({
             'data': {
                 'raw_data_path': raw_path,
@@ -911,6 +914,7 @@ class ImprovedConvLSTMPipeline:
         )
         
         trainer_cfg = self.cfg.get('convlstm_params', {}).get('trainer', {})
+        tuning_cfg = self.cfg.get('convlstm_params', {}).get('tuning', {})
         final_trainer = pl.Trainer(
             max_epochs=trainer_cfg.get('max_epochs', 100),
             callbacks=[ckpt_callback, lr_monitor, early_stopping],

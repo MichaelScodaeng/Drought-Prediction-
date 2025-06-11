@@ -1,0 +1,40 @@
+# config_SARIMA.yaml
+# Configuration file for running the SarimaLocalPipeline
+
+project_setup:
+  experiment_name: "PET_SARIMA_Local_Run"  # Base name for the experiment; "_sarima_local" will be appended by the pipeline script for the output folder.
+  target_variable: "pet"                   # The column to forecast.
+
+data:
+  raw_data_path: "../../data/full.csv"            # Path to your full dataset, relative to this config file's location.
+  time_column: "time"
+  lat_column: "lat"
+  lon_column: "lon"
+  
+  # --- Time Splits ---
+  # Defines the periods for training, validation (used for fitting), and testing.
+  # The SARIMA pipeline fits the model on train+validation data and forecasts over the test period.
+  train_end_date: "2017-12-31"              # Last date for the initial training set used by auto_arima.
+  validation_end_date: "2020-12-31"         # Last date for the validation set. The final model is fit on data up to this point.
+                                            # The test set begins on the day after this date.
+
+sarima_params:
+  min_data_points: 36  # Minimum number of non-NaN data points required for a location to be processed. (e.g., 3 years of monthly data).
+  seasonal_period: 12  # The seasonal cycle length (m). For monthly data with an annual cycle, this is 12.
+
+# --- Output Configuration ---
+# Defines where the results of the pipeline run will be saved.
+
+paths:
+  # This key isn't used by the SarimaLocalPipeline script, but is kept for consistency with the XGBoost pipeline.
+  models_base_dir: "../../models_saved" 
+  output_base_dir: "../../run_outputs" 
+
+results:
+  # Base directory for all outputs of this run. A subfolder with the experiment name will be created here.
+  # This path is relative to the location of this config.yaml file.
+  
+
+  # Filename for the aggregated JSON file that will contain the metrics from all processed locations.
+  metrics_filename: "all_sarima_local_models_evaluation_metrics.json"
+

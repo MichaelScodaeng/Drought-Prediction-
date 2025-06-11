@@ -794,7 +794,7 @@ class MultitaskConvLSTMPipeline:
         self.cfg = load_config(self.config_path_abs)
         
         self.experiment_name = self.cfg.get('project_setup', {}).get('experiment_name', 'multitask_convlstm_experiment')
-        self.project_root_for_paths = os.path.dirname(self.config_path_abs)
+        self.project_root_for_paths = os.path.join(os.path.dirname(self.config_path_abs),"..","..")
         self.run_output_dir = os.path.join(self.project_root_for_paths, 'run_outputs', self.experiment_name)
         self.run_models_dir = os.path.join(self.project_root_for_paths, 'models_saved', self.experiment_name)
         
@@ -1121,6 +1121,9 @@ class MultitaskConvLSTMPipeline:
         print(f"Data loaded: {len(self.full_df_raw)} records")
         
         # Get target scalers for all variables
+        #load scaler from joblib
+        
+
         self.target_scalers = self._get_target_scalers()
         
         # Create gridded data

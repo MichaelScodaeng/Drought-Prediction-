@@ -31,7 +31,7 @@ class SarimaLocalPipeline:
         self.experiment_name = self.cfg.get('project_setup', {}).get('experiment_name', 'sarima_experiment')
         self.project_root_for_paths = os.path.dirname(self.config_path_abs)
 
-        results_base_cfg = self.cfg.get('results',{}).get('output_base_dir', 'run_outputs')
+        results_base_cfg = self.cfg.get('paths',{}).get('output_base_dir', 'run_outputs')
         self.run_output_dir = os.path.join(self.project_root_for_paths, results_base_cfg, self.experiment_name + "_sarima_local")
         os.makedirs(self.run_output_dir, exist_ok=True)
         print(f"SARIMA Pipeline Class: Artifacts will be saved under '{self.run_output_dir}'")

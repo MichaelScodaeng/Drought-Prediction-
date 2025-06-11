@@ -1,0 +1,12 @@
+{
+    "batch_size": 16,
+    "hidden_cnn": 16,
+    "kernel_size": 3,
+    "lstm_hidden_size": 128,
+    "lstm_layers": 2,
+    "dropout": 0.42114892686425087,
+    "learning_rate": 0.0016949784448918733,
+    "use_layernorm": true,
+    "max_epochs": 2,
+    "patience": 10
+}

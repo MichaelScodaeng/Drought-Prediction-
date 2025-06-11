@@ -142,7 +142,7 @@ class LSTMPyTorchLightningLocalPipeline:
         lightning_model = LSTMLightningModule(model, learning_rate, trial=trial)
         early_stopping_callback = EarlyStopping(monitor="val_loss", patience=self.cfg.get('lstm_params',{}).get('trainer',{}).get('patience_for_early_stopping', 5))
         trainer_params = self.cfg.get('lstm_params', {}).get('trainer', {})
-        trainer = pl.Trainer(max_epochs=1, callbacks=[early_stopping_callback], logger=False,
+        trainer = pl.Trainer(max_epochs=50, callbacks=[early_stopping_callback], logger=False,
             enable_checkpointing=False, enable_progress_bar=trainer_params.get('enable_progress_bar', False), accelerator=trainer_params.get('accelerator', 'auto'), devices=1)
         try:
             trainer.fit(model=lightning_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -157,7 +157,10 @@ class LSTMPyTorchLightningLocalPipeline:
 
         train_df_raw, val_df_raw, test_df_raw = split_data_chronologically(location_data.copy(), self.cfg)
         if train_df_raw is None or train_df_raw.empty: return None
-        train_df_featured = engineer_features(train_df_raw.copy(), self.cfg); val_df_featured = engineer_features(val_df_raw.copy(), self.cfg); test_df_featured = engineer_features(test_df_raw.copy(), self.cfg)
+        train_df_featured = self._add_time_features(train_df_raw.copy())
+        val_df_featured = self._add_time_features(val_df_raw.copy())
+        test_df_featured = self._add_time_features(test_df_raw.copy())
+
         if train_df_featured.empty: return None
         scaled_train_df, scaled_val_df, scaled_test_df, fitted_scaler = scale_data(train_df_featured, val_df_featured, test_df_featured, self.cfg)
         if fitted_scaler is None: return None
@@ -167,6 +170,7 @@ class LSTMPyTorchLightningLocalPipeline:
         X_train_flat = scaled_train_df.drop(columns=cols_to_drop, errors='ignore'); y_train_flat = X_train_flat.pop(target_col)
         X_val_flat = scaled_val_df.drop(columns=cols_to_drop, errors='ignore'); y_val_flat = X_val_flat.pop(target_col)
         X_test_flat = scaled_test_df.drop(columns=cols_to_drop, errors='ignore'); y_test_flat = X_test_flat.pop(target_col)
+        print(X_train_flat.head())
         
         lstm_params = self.cfg.get('lstm_params', {})
         n_steps_in = lstm_params.get('n_steps_in', 12); n_steps_out = lstm_params.get('n_steps_out', 1)
@@ -225,10 +229,17 @@ class LSTMPyTorchLightningLocalPipeline:
         self._predict_and_save_full_for_location(location_data, loc_identifier, best_lightning_model.model, fitted_scaler)
 
         return location_metrics_summary
-
+    def _add_time_features(self, df):
+        time_col = self.cfg['data']['time_column']
+        if time_col in df.columns:
+            df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+            df["year"] = df[time_col].dt.year
+            df["month"] = df[time_col].dt.month
+        return df
     def _predict_and_save_full_for_location(self, location_data_raw_df, loc_identifier, model, scaler):
         # (This method remains the same)
-        print(f"  Generating full predictions for {loc_identifier}..."); full_featured_df = engineer_features(location_data_raw_df.copy(), self.cfg)
+        print(f"  Generating full predictions for {loc_identifier}...")
+        full_featured_df = self._add_time_features(location_data_raw_df.copy())
         if full_featured_df.empty: return
         target_col = self.cfg['project_setup']['target_variable']; cols_to_scale = [target_col] + self.cfg.get('data', {}).get('predictor_columns', [])
         actual_cols_to_scale = [col for col in cols_to_scale if col in full_featured_df.columns]

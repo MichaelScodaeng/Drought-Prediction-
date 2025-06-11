@@ -130,7 +130,14 @@ class LSTMPyTorchGlobalPipeline:
     def _calculate_metrics(self, actuals, predictions): # (Helper function)
         rmse = mean_squared_error(actuals, predictions); mae = mean_absolute_error(actuals, predictions); r2 = r2_score(actuals, predictions)
         return {'rmse': rmse, 'mae': mae, 'r2': r2}
-
+    def _add_time_features(self, df):
+        time_col = self.cfg['data']['time_column']
+        if time_col in df.columns:
+            df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+            df["year"] = df[time_col].dt.year
+            df["month"] = df[time_col].dt.month
+        return df
+    
     # --- Main Pipeline Logic (No Location Loop) ---
     def run_pipeline(self):
         if not PYTORCH_AVAILABLE: return "Failed: PyTorch/Lightning/Optuna not found."
@@ -155,9 +162,10 @@ class LSTMPyTorchGlobalPipeline:
 
         # 2. Feature Engineering on full splits
         print("Pipeline: Engineering features...")
-        train_df_featured = engineer_features(train_df_raw.copy(), self.cfg)
-        val_df_featured = engineer_features(val_df_raw.copy(), self.cfg)
-        test_df_featured = engineer_features(test_df_raw.copy(), self.cfg)
+        train_df_featured = self._add_time_features(train_df_raw.copy())
+        val_df_featured = self._add_time_features(val_df_raw.copy())
+        test_df_featured = self._add_time_features(test_df_raw.copy())
+        print(train_df_featured.head())
         if train_df_featured.empty: return "Failed: Feature engineering resulted in empty train set."
 
         # 3. Scale Data with a SINGLE global scaler
@@ -262,7 +270,7 @@ class LSTMPyTorchGlobalPipeline:
         model = LSTMRegressor(n_features, hidden_size, n_layers, n_steps_out, dropout_rate); lightning_model = LSTMLightningModule(model, learning_rate, trial=trial)
         early_stopping_callback = EarlyStopping(monitor="val_loss", patience=self.cfg.get('lstm_params',{}).get('trainer',{}).get('patience_for_early_stopping', 5))
         trainer_params = self.cfg.get('lstm_params', {}).get('trainer', {})
-        trainer = pl.Trainer(max_epochs=trainer_params.get('max_epochs', 50), callbacks=[early_stopping_callback], logger=False,
+        trainer = pl.Trainer(max_epochs=50, callbacks=[early_stopping_callback], logger=False,
             enable_checkpointing=False, enable_progress_bar=trainer_params.get('enable_progress_bar', False), accelerator=trainer_params.get('accelerator', 'auto'), devices=1)
         try: trainer.fit(model=lightning_model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         except optuna.exceptions.TrialPruned: return float('inf')
@@ -270,7 +278,7 @@ class LSTMPyTorchGlobalPipeline:
     def predict_on_full_data(self):
         print("\nPipeline: Generating predictions on the full raw dataset...")
         if self.model is None or self.scaler is None: return None
-        full_featured_df = engineer_features(self.full_df_raw_for_prediction.copy(), self.cfg)
+        full_featured_df = self._add_time_features(self.full_df_raw_for_prediction.copy())
         if full_featured_df.empty: return None
         target_col = self.cfg['project_setup']['target_variable']; cols_to_scale = [target_col] + self.cfg['data']['predictor_columns']
         actual_cols_to_scale = [col for col in cols_to_scale if col in full_featured_df.columns]

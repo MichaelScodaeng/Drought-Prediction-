@@ -1,0 +1,9 @@
+{
+    "batch_size": 16,
+    "n_conv_layers": 1,
+    "hidden_channels": 16,
+    "kernel_size": 1,
+    "dropout": 0.4334582819940417,
+    "use_batchnorm": true,
+    "learning_rate": 0.003980700214341597
+}
