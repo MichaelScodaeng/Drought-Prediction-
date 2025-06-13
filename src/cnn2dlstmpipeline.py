@@ -12,6 +12,10 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score,ro
 import json
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import pandas as pd
+import torch.nn.functional as F
+import optuna
+
 class CNNLSTMModel(nn.Module):
     def __init__(self, in_channels, hidden_cnn=16, kernel_size=3, lstm_hidden_size=64,
                  lstm_layers=1, dropout=0.0, height=20, width=20, use_layernorm=False):
@@ -220,6 +224,8 @@ class CNNLSTMPipeline:
 
     # (The existing content remains unchanged above this point)
 
+    # (The existing content remains unchanged above this point)
+
     def evaluate(self):
         self.model.load_state_dict(torch.load(self.best_model_path))
         self.model.eval()
@@ -256,9 +262,9 @@ class CNNLSTMPipeline:
             preds_inv = self.target_scaler.inverse_transform(preds_valid)
             actuals_inv = self.target_scaler.inverse_transform(actuals_valid)
 
-            rmse = mean_squared_error(actuals_inv, preds_inv, squared=False)
-            mae = mean_absolute_error(actuals_inv, preds_inv)
-            r2 = r2_score(actuals_inv, preds_inv)
+            rmse = float(root_mean_squared_error(actuals_inv, preds_inv))
+            mae = float(mean_absolute_error(actuals_inv, preds_inv))
+            r2 = float(r2_score(actuals_inv, preds_inv))
 
             metrics[split] = {'rmse': rmse, 'mae': mae, 'r2': r2}
             print(f"{split.capitalize()} Set - RMSE: {rmse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}")
@@ -268,6 +274,8 @@ class CNNLSTMPipeline:
             json.dump(metrics, f, indent=4)
         print(f"Metrics saved to {metrics_filename}")
         return metrics
+
+
 
 
     def predict_on_full_data(self):
