@@ -1,0 +1,47 @@
+model:
+  input_channels: 21               # Number of input features before PE + 2 + 4
+  hidden_channels: [32, 32]        # Hidden channels per ADM layer
+  n_layers: 2
+  output_targets: ["PET", "PRE"]
+  kernel_size: 3
+
+training:
+  input_steps: 12
+  output_steps: 1
+  batch_size: 4
+  epochs: 1
+  learning_rate: 0.0001
+  mask_path: "land_mask.npy"       # Optional: path to land mask file
+  shuffle: true
+  loss_weights: {
+    "PRE": 0.2,
+    "PET": 0.2,
+    "SPEI": 0.6  # Your main target
+  }
+  early_stopping_patience: 20
+
+positional_encoding:
+  use_temporal: true
+  use_spatial: true
+
+data:
+  csv_path: "data/processed/full_scaled.csv"
+  time_column: "time"
+  lat_column: "lat"
+  lon_column: "lon"
+  train_end_date: "2017-12-31"
+  validation_end_date: "2020-12-31"
+  target_variables: ["PET", "PRE"]
+  features_to_grid: [
+    'tmp', 'dtr', 'cld', 'tmx', 
+    'tmn', 'wet', 'vap', 'soi', 
+    'dmi', 'pdo', 'nino4', 
+    'nino34', 'nino3', 'pre', 'pet'
+    
+  ]
+
+output:
+  save_model_path: "checkpoints/adm_prednet/predictions_prepet/adm_prednet.pt"
+  predictions_csv: "run_outputs/adm_prednet/predictions_prepet/"
+  logs_dir: "logs/"
+  visualize_samples: true

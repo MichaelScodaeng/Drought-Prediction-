@@ -1,0 +1,14 @@
+{
+    "learning_rate": 0.0004143045747415732,
+    "n_layers": 2,
+    "hidden_dim_size": 256,
+    "kernel_size": 3,
+    "dropout": 0.004695549143397537,
+    "weight_decay": 1.0606540598656731e-06,
+    "batch_norm": false,
+    "teacher_forcing_ratio": 0.3132013017441999,
+    "batch_size": 8,
+    "multitask_fusion": "shared",
+    "weight_pre": 0.5486061301539196,
+    "weight_pet": 1.7180007348484854
+}

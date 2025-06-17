@@ -703,6 +703,22 @@ class ImprovedConvLSTMPipeline:
         weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
         batch_norm = trial.suggest_categorical('batch_norm', [True, False])
         teacher_forcing_ratio = trial.suggest_float('teacher_forcing_ratio', 0.3, 0.8)
+        batch_size = trial.suggest_categorical('batch_size', [4, 8, 16, 32])
+        train_loader = DataLoader(
+            train_loader.dataset,  # Reuse dataset
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=2 if os.name != 'nt' else 0,
+            pin_memory=True
+        )
+
+        val_loader = DataLoader(
+            val_loader.dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=2 if os.name != 'nt' else 0,
+            pin_memory=True
+        )
         
         # Build model
         hidden_dim = [hidden_size] * n_layers
@@ -867,7 +883,7 @@ class ImprovedConvLSTMPipeline:
         # Train final model with best hyperparameters
         print("\n--- Training Final Model ---")
         best = self.best_hyperparams
-        
+        best_batch_size = best.get('batch_size', self.cfg.get('convlstm_params', {}).get('batch_size', 8))
         final_model = AdvancedEncodingForecastingConvLSTM(
             input_dim=len(features_to_grid),
             hidden_dim=[best['hidden_dim_size']] * best['n_layers'],
@@ -891,7 +907,7 @@ class ImprovedConvLSTMPipeline:
         # Combine train and validation for final training
         full_train_ds = torch.utils.data.ConcatDataset([train_ds, val_ds])
         full_train_loader = DataLoader(
-            full_train_ds, batch_size=batch_size, shuffle=True,
+            full_train_ds, batch_size=best_batch_size, shuffle=True,
             num_workers=num_workers, pin_memory=True
         )
         
@@ -925,12 +941,17 @@ class ImprovedConvLSTMPipeline:
             gradient_clip_val=1.0,
             precision=16 if torch.cuda.is_available() else 32  # Mixed precision if available
         )
-        
+        test_loader = DataLoader(
+            test_ds,
+            batch_size=best_batch_size,
+            num_workers=num_workers,
+            pin_memory=True
+        )
         # Final training
         final_trainer.fit(
             model=final_lightning_model,
             train_dataloaders=full_train_loader,
-            val_dataloaders=val_loader
+            val_dataloaders=test_loader
         )
         
         # Load best model

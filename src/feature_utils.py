@@ -33,19 +33,33 @@ def load_feature_config(config_path="config.yaml"): # Simplified for brevity
     return config
 
 def create_lagged_features(df, group_by_cols, columns_to_lag, lag_periods, is_debug_location=False):
-    df_lagged = df.copy()
-    print(f"  DEBUG (create_lagged_features for {'debug loc' if is_debug_location else 'other loc'}): Input df shape {df.shape}, head:\n{df.head(3)}")
+    base_df = df.copy().reset_index(drop=True)
+    lagged_feature_list = []
+
+    if is_debug_location:
+        print(f"  DEBUG (create_lagged_features): Input df shape {df.shape}, head:\n{df.head(3)}")
+
     for col_to_lag in columns_to_lag:
-        if col_to_lag not in df_lagged.columns: continue
+        if col_to_lag not in base_df.columns:
+            continue
         for lag in lag_periods:
             new_col_name = f"{col_to_lag}_lag_{lag}"
-            if not group_by_cols: 
-                 df_lagged[new_col_name] = df_lagged[col_to_lag].shift(lag)
+            if group_by_cols:
+                lagged_col = base_df.groupby(group_by_cols, group_keys=False)[col_to_lag].shift(lag)
             else:
-                 df_lagged[new_col_name] = df_lagged.groupby(group_by_cols, sort=False)[col_to_lag].shift(lag)
-            if is_debug_location and lag == max(lag_periods): # Print head for longest lag
-                 print(f"    DEBUG: After creating {new_col_name} for debug loc (head):\n{df_lagged[[df.columns[2], col_to_lag, new_col_name]].head(15)}")
-    return df_lagged
+                lagged_col = base_df[col_to_lag].shift(lag)
+            lagged_feature_list.append(lagged_col.rename(new_col_name))
+
+            if is_debug_location and lag == max(lag_periods):
+                print(f"    DEBUG: Sample of lagged col {new_col_name}:\n{lagged_col.head(15)}")
+
+    # Concatenate all lagged columns at once (avoids fragmentation)
+    if lagged_feature_list:
+        lagged_df = pd.concat(lagged_feature_list, axis=1)
+        base_df = pd.concat([base_df, lagged_df], axis=1)
+
+    return base_df
+
 
 def create_date_features(df, time_column_name, date_features_to_extract): # Simplified
     df_with_date_features = df.copy()

@@ -44,7 +44,7 @@ lstm_params:
   
   # Optuna Hyperparameter Tuning settings
   tuning:
-    n_trials: 20 # Number of trials for the single global model
+    n_trials: 10 # Number of trials for the single global model
     learning_rate: {low: 1.0e-6, high: 1.0e-4, log: True}
     hidden_size: {low: 64, high: 256, step: 64}
     n_layers: {low: 2, high: 4}

@@ -1,0 +1,11 @@
+learning_rate: 0.0004143045747415732
+target_variables:
+- pre
+- pet
+weight_decay: 1.0606540598656731e-06
+lr_scheduler: cosine
+gradient_clip_val: 1.0
+teacher_forcing_ratio: 0.3132013017441999
+task_weights:
+  pre: 0.5486061301539196
+  pet: 1.7180007348484854

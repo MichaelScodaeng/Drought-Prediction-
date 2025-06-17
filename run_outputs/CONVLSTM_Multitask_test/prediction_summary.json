@@ -1,0 +1,31 @@
+{
+    "total_predictions": 262056,
+    "targets": {
+        "pre": {
+            "valid_predictions": 262056,
+            "mean_actual": 0.14276893436908722,
+            "mean_predicted": 0.2491857260465622,
+            "mean_absolute_error": 0.29764601588249207,
+            "rmse": 0.41681766510009766,
+            "r2_score": 0.6549278497695923,
+            "units": "Original pre units (inverse transformed)"
+        },
+        "pet": {
+            "valid_predictions": 262056,
+            "mean_actual": 0.2466123253107071,
+            "mean_predicted": 0.08119064569473267,
+            "mean_absolute_error": 0.30314457416534424,
+            "rmse": 0.4019753336906433,
+            "r2_score": 0.7567885518074036,
+            "units": "Original pet units (inverse transformed)"
+        }
+    },
+    "multitask_info": {
+        "n_targets": 2,
+        "target_variables": [
+            "pre",
+            "pet"
+        ],
+        "fusion_method": "shared"
+    }
+}

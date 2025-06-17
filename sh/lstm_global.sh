@@ -6,7 +6,7 @@
 #SBATCH --partition=gpu
 #SBATCH --qos=gpu10gh
 #SBATCH --gres=gpu:2g.10gb:1
-#SBATCH --mem=30G
+#SBATCH --mem=60G
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=captainglueman@gmail.com
 # Load required modules (adjust for your cluster)

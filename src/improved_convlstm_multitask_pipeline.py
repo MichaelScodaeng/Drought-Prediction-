@@ -1029,10 +1029,27 @@ class MultitaskConvLSTMPipeline:
         weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
         batch_norm = trial.suggest_categorical('batch_norm', [True, False])
         teacher_forcing_ratio = trial.suggest_float('teacher_forcing_ratio', 0.3, 0.8)
+        batch_size = trial.suggest_categorical('batch_size', [4, 8, 16, 32])
+        train_loader = DataLoader(
+            train_loader.dataset,  # use same Dataset passed earlier
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=2 if os.name != 'nt' else 0,
+            pin_memory=True
+        )
+
+        val_loader = DataLoader(
+            val_loader.dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=2 if os.name != 'nt' else 0,
+            pin_memory=True
+        )
+
         
         # Multitask-specific hyperparameters
         if self.is_multitask:
-            multitask_fusion = trial.suggest_categorical('multitask_fusion', ['concat', 'shared', 'separate'])
+            multitask_fusion = trial.suggest_categorical('multitask_fusion', ['shared'])
             # Task weights (optional - can be tuned)
             task_weights = {}
             for target in self.target_variables:
@@ -1179,6 +1196,10 @@ class MultitaskConvLSTMPipeline:
             val_ds, batch_size=batch_size, 
             num_workers=num_workers, pin_memory=True
         )
+        test_loader = DataLoader(
+            test_ds, batch_size=batch_size,
+            num_workers=num_workers, pin_memory=True
+        )
         
         # Hyperparameter optimization with Optuna
         print("\n--- Starting Hyperparameter Optimization ---")
@@ -1194,7 +1215,6 @@ class MultitaskConvLSTMPipeline:
                 len(features_to_grid), n_in, n_out
             ),
             n_trials=n_trials,
-            timeout=3600  # 1 hour timeout
         )
         
         self.best_hyperparams = study.best_trial.params
@@ -1209,7 +1229,7 @@ class MultitaskConvLSTMPipeline:
         task_weights = {}
         for target in self.target_variables:
             task_weights[target] = best.get(f'weight_{target}', 1.0)
-        
+        best_batch_size = self.best_hyperparams.get('batch_size', batch_size)
         final_model = MultitaskEncodingForecastingConvLSTM(
             input_dim=len(features_to_grid),
             hidden_dim=[best['hidden_dim_size']] * best['n_layers'],
@@ -1236,7 +1256,7 @@ class MultitaskConvLSTMPipeline:
         # Combine train and validation for final training
         full_train_ds = torch.utils.data.ConcatDataset([train_ds, val_ds])
         full_train_loader = DataLoader(
-            full_train_ds, batch_size=batch_size, shuffle=True,
+            full_train_ds, batch_size=best_batch_size, shuffle=True,
             num_workers=num_workers, pin_memory=True
         )
         
@@ -1268,15 +1288,25 @@ class MultitaskConvLSTMPipeline:
             accelerator='auto',
             devices=1,
             gradient_clip_val=1.0,
-            precision=16 if torch.cuda.is_available() else 32
+            precision="bf16-mixed" if torch.cuda.is_available() else 32
         )
-        # THIS IS THE MISSING CRITICAL STEP!
-        print("Training final model with best hyperparameters...")
+        full_train_ds = torch.utils.data.ConcatDataset([train_ds, val_ds])
+        best_batch_size = self.best_hyperparams.get('batch_size', 8)
+
+        full_train_loader = DataLoader(
+            full_train_ds,
+            batch_size=best_batch_size,
+            shuffle=True,
+            num_workers=2 if os.name != 'nt' else 0,
+            pin_memory=True
+        )
+
         final_trainer.fit(
             model=final_lightning_model,
             train_dataloaders=full_train_loader,
-            val_dataloaders=val_loader  # Use original val_loader for monitoring
+            val_dataloaders=val_loader  # already created earlier
         )
+
         # Load best model
         best_model_path = ckpt_callback.best_model_path
         print(f"Best model saved at: {best_model_path}")

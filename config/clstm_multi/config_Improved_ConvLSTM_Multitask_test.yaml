@@ -34,7 +34,7 @@ convlstm_params:
   batch_size: 8
   
   trainer:
-    max_epochs: 1 # Increased epochs for multitask training
+    max_epochs: 50 # Increased epochs for multitask training
     patience_for_early_stopping: 30
     enable_progress_bar: True
     gradient_clip_val: 1.0

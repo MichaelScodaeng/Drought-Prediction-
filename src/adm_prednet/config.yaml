@@ -1,0 +1,32 @@
+model:
+  input_channels: 10               # Number of input features before PE
+  hidden_channels: [32, 32]        # Hidden channels per ADM layer
+  n_layers: 2
+  output_targets: ["PET", "PRE"]
+  kernel_size: 3
+
+training:
+  input_steps: 12
+  output_steps: 1
+  batch_size: 4
+  epochs: 20
+  learning_rate: 0.001
+  mask_path: "land_mask.npy"       # Optional: path to land mask file
+  shuffle: true
+
+positional_encoding:
+  use_temporal: true
+  use_spatial: true
+
+data:
+  csv_path: "val.csv"
+  time_column: "time"
+  lat_column: "lat"
+  lon_column: "lon"
+  target_variables: ["PET", "PRE"]
+
+output:
+  save_model_path: "checkpoints/adm_prednet.pt"
+  predictions_csv: "outputs/predictions.csv"
+  logs_dir: "logs/"
+  visualize_samples: true

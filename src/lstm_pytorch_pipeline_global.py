@@ -196,7 +196,7 @@ class LSTMPyTorchGlobalPipeline:
         
         if len(train_dataset) == 0 or len(val_dataset) == 0: return "Failed: Not enough data to create sequences."
         
-        batch_size = lstm_params.get('batch_size', 256)
+        batch_size = lstm_params.get('batch_size', 16)
         num_workers = 2 if os.name != 'nt' else 0
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers)
