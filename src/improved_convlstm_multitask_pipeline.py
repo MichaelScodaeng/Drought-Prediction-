@@ -546,7 +546,7 @@ class MultitaskEncodingForecastingConvLSTM(nn.Module):
 # --- Enhanced Lightning Module for Multitask Learning ---
 class MultitaskGridModelLightningModule(pl.LightningModule):
     def __init__(self, model, learning_rate, mask, target_variables=['pre'], 
-                 trial=None, weight_decay=1e-5, lr_scheduler='cosine', 
+                 trial=None, weight_decay=1e-5, lr_scheduler='step', 
                  gradient_clip_val=1.0, teacher_forcing_ratio=0.5,
                  task_weights=None):
         super().__init__()
@@ -713,8 +713,11 @@ class MultitaskGridModelLightningModule(pl.LightningModule):
             lr=self.learning_rate,
             weight_decay=self.weight_decay
         )
-        
-        if self.lr_scheduler == 'cosine':
+        if self.lr_scheduler == 'step':
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer, step_size=10, gamma=0.9  # use decay_steps and decay_rate
+            )
+        elif self.lr_scheduler == 'cosine':
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=self.trainer.max_epochs
             )

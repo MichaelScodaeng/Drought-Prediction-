@@ -1,5 +1,5 @@
 # === MULTITASK CONFIG (New multitask functionality) ===
-# config_multitask_pre_pet.yaml
+# config_Improved_ConvLSTM_Multitask_onetime.yaml
 # === ADVANCED MULTITASK CONFIG ===
 # config_advanced_multitask.yaml
 project_setup:
@@ -41,21 +41,21 @@ convlstm_params:
     precision: 32
   
   tuning:
-    max_epochs: 1 # Reduced epochs for hyperparameter tuning
+    max_epochs: 1000 # Reduced epochs for hyperparameter tuning
     n_trials: 1  # More trials for multitask optimization
-    learning_rate: {low: 1.0e-4, high: 1.0e-3, log: True}
-    hidden_dim_size: {choices: [64,128,256]}
-    n_layers: {low: 1, high: 3}
-    kernel_size: {choices: [3, 5, 7]}
-    dropout: {low: 0.1, high: 0.4}
-    weight_decay: {low: 1.0e-6, high: 1.0e-3, log: True}
+    learning_rate: {low: 1.0e-3, high: 1.0e-3, log: True}
+    hidden_dim_size: {choices: [64]}
+    n_layers: {low: 3, high: 3}
+    kernel_size: {choices: [3]}
+    dropout: {low: 0.1, high: 0.1}
+    weight_decay: {low: 1.0e-4, high: 1.0e-4, log: True}
     batch_norm: [true, false]
     teacher_forcing_ratio: {low: 0.3, high: 0.8}
     
     # Multitask hyperparameters
     multitask_fusion: {choices: ["shared"]}
-    weight_pre: {low: 0.3, high: 3.0}
-    weight_pet: {low: 0.3, high: 3.0}
+    weight_pre: {low: 1.0, high: 1.0}
+    weight_pet: {low: 1.0, high: 1.0}
 
 
 results:
