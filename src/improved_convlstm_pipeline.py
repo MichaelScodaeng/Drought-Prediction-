@@ -836,7 +836,7 @@ class ImprovedConvLSTMPipeline:
         
         # Create enhanced datasets
         train_ds = EnhancedSequenceDatasetConvLSTM(
-            train_grid, target_idx, n_in, n_out, augment=True
+            train_grid, target_idx, n_in, n_out, augment=False
         )
         val_ds = EnhancedSequenceDatasetConvLSTM(
             val_grid, target_idx, n_in, n_out, augment=False

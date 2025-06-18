@@ -1173,7 +1173,7 @@ class MultitaskConvLSTMPipeline:
         
         # Create multitask datasets
         train_ds = MultitaskSequenceDatasetConvLSTM(
-            train_grid, target_indices, n_in, n_out, augment=True
+            train_grid, target_indices, n_in, n_out, augment=False
         )
         val_ds = MultitaskSequenceDatasetConvLSTM(
             val_grid, target_indices, n_in, n_out, augment=False
