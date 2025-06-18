@@ -50,7 +50,7 @@ convlstm_params:
     dropout: {low: 0.1, high: 0.4}
     weight_decay: {low: 1.0e-6, high: 1.0e-3, log: True}
     batch_norm: [true, false]
-    teacher_forcing_ratio: {low: 0.3, high: 0.8}
+    teacher_forcing_ratio: {low: 0.0, high: 0.0}
     
     # Multitask hyperparameters
     multitask_fusion: {choices: ["shared"]}

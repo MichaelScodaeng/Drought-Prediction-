@@ -483,6 +483,7 @@ class AdvancedGridModelLightningModule(pl.LightningModule):
             scheduler = torch.optim.lr_scheduler.StepLR(
                 optimizer, step_size=10, gamma=0.9  # use decay_steps and decay_rate
             )
+            return [optimizer], [scheduler]
         elif self.lr_scheduler == 'cosine':
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=self.trainer.max_epochs
@@ -705,7 +706,7 @@ class ImprovedConvLSTMPipeline:
         dropout = trial.suggest_float('dropout', 0.0, 0.3)
         weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
         batch_norm = trial.suggest_categorical('batch_norm', [True, False])
-        teacher_forcing_ratio = trial.suggest_float('teacher_forcing_ratio', 0.3, 0.8)
+        teacher_forcing_ratio = trial.suggest_float('teacher_forcing_ratio', 0.0, 0.0)
         batch_size = trial.suggest_categorical('batch_size', [4, 8, 16, 32])
         train_loader = DataLoader(
             train_loader.dataset,  # Reuse dataset
@@ -942,7 +943,7 @@ class ImprovedConvLSTMPipeline:
             accelerator='auto',
             devices=1,
             gradient_clip_val=1.0,
-            precision=16 if torch.cuda.is_available() else 32  # Mixed precision if available
+            precision=32 if torch.cuda.is_available() else 32  # Mixed precision if available
         )
         test_loader = DataLoader(
             test_ds,

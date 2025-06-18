@@ -717,6 +717,7 @@ class MultitaskGridModelLightningModule(pl.LightningModule):
             scheduler = torch.optim.lr_scheduler.StepLR(
                 optimizer, step_size=10, gamma=0.9  # use decay_steps and decay_rate
             )
+            return [optimizer], [scheduler]
         elif self.lr_scheduler == 'cosine':
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, T_max=self.trainer.max_epochs
@@ -1031,7 +1032,7 @@ class MultitaskConvLSTMPipeline:
         dropout = trial.suggest_float('dropout', 0.0, 0.3)
         weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
         batch_norm = trial.suggest_categorical('batch_norm', [True, False])
-        teacher_forcing_ratio = trial.suggest_float('teacher_forcing_ratio', 0.3, 0.8)
+        teacher_forcing_ratio = trial.suggest_float('teacher_forcing_ratio', 0.0, 0.0)
         batch_size = trial.suggest_categorical('batch_size', [4, 8, 16, 32])
         train_loader = DataLoader(
             train_loader.dataset,  # use same Dataset passed earlier
