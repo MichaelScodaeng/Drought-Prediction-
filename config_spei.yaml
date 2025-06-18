@@ -9,7 +9,7 @@ training:
   input_steps: 12
   output_steps: 1
   batch_size: 4
-  epochs: 1
+  epochs: 500
   learning_rate: 0.0001
   mask_path: "land_mask.npy"       # Optional: path to land mask file
   shuffle: true
