@@ -1307,7 +1307,7 @@ class MultitaskConvLSTMPipeline:
         final_trainer.fit(
             model=final_lightning_model,
             train_dataloaders=full_train_loader,
-            val_dataloaders=val_loader  # already created earlier
+            val_dataloaders=test_loader  # already created earlier
         )
 
         # Load best model
