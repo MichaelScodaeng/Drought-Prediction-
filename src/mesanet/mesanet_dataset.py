@@ -1,0 +1,228 @@
+from typing import List, Tuple, Dict
+import numpy as np
+import torch
+import xarray as xr
+from torch.utils.data import Dataset
+class WeatherBench2Dataset(Dataset):
+    """PyTorch Dataset for WeatherBench2 ERA5 data"""
+    
+    def __init__(self, 
+                 zarr_path: str,
+                 variables: List[str],
+                 time_range: slice = slice("1959", "2023"),
+                 split: str = "train",
+                 sequence_length: int = 12,
+                 forecast_horizon: int = 4,
+                 normalize: bool = True):
+        """
+        Initialize WeatherBench2 Dataset
+        
+        Args:
+            zarr_path: Path to WeatherBench2 zarr dataset
+            variables: List of variable names to load
+            time_range: Time range to load (e.g., slice("2020", "2023"))
+            split: Data split ('train', 'val', 'test')
+            sequence_length: Input sequence length (12 = 3 days of 6h data)
+            forecast_horizon: Forecast horizon (4 = 1 day ahead)
+            normalize: Whether to normalize the data
+        """
+        self.zarr_path = zarr_path
+        self.variables = variables
+        self.sequence_length = sequence_length
+        self.forecast_horizon = forecast_horizon
+        self.normalize = normalize
+        
+        # Load dataset with lazy evaluation
+        self.ds = self._load_dataset(time_range)
+        
+        # Create geographic features once
+        self.geo_features = self._create_geo_features()
+        
+        # Create valid time indices for this split
+        self.time_indices = self._create_time_indices(split)
+        
+        # Compute normalization statistics if needed
+        if self.normalize:
+            self.norm_stats = self._compute_normalization_stats()
+        
+    def _load_dataset(self, time_range: slice) -> xr.Dataset:
+        """Load and preprocess WeatherBench2 dataset"""
+        ds = xr.open_zarr(
+            self.zarr_path,
+            consolidated=True,
+            storage_options={"token": "cloud"},
+            chunks={'time': 100}  # Reasonable chunk size for streaming
+        )
+        
+        # Select time range first
+        ds = ds.sel(time=time_range)
+        
+        # Select variables and geographic region
+        ds = ds[self.variables]
+        
+        # Apply Europe bounds (handle longitude wrapping)
+        ds = ds.where(
+            (ds.longitude >= 335) | (ds.longitude <= 50),
+            drop=True
+        ).sel(latitude=slice(75, 30))
+        
+        print(f"Dataset loaded: {dict(ds.dims)}")
+        print(f"Time range: {ds.time.values[0]} to {ds.time.values[-1]}")
+        print(f"Variables: {list(ds.data_vars.keys())}")
+        
+        return ds
+    
+    def _create_time_indices(self, split: str) -> np.ndarray:
+        """Create valid time indices for sequence creation based on split"""
+        total_time_steps = len(self.ds.time)
+        
+        # Create valid indices (need enough history and future for sequences)
+        valid_indices = np.arange(
+            self.sequence_length,
+            total_time_steps - self.forecast_horizon
+        )
+        
+        # Split data temporally
+        if split == "train":
+            # Use first 70% for training
+            split_idx = int(0.7 * len(valid_indices))
+            indices = valid_indices[:split_idx]
+        elif split == "val":
+            # Use next 15% for validation
+            start_idx = int(0.7 * len(valid_indices))
+            end_idx = int(0.85 * len(valid_indices))
+            indices = valid_indices[start_idx:end_idx]
+        elif split == "test":
+            # Use last 15% for testing
+            start_idx = int(0.85 * len(valid_indices))
+            indices = valid_indices[start_idx:]
+        else:
+            indices = valid_indices
+        
+        print(f"{split.capitalize()} split: {len(indices)} samples")
+        return indices
+    
+    def _create_geo_features(self) -> torch.Tensor:
+        """Create geographic features tensor"""
+        # Get spatial dimensions
+        lats = self.ds.latitude.values
+        lons = self.ds.longitude.values
+        height, width = len(lats), len(lons)
+        
+        # Create coordinate grids
+        lat_grid, lon_grid = np.meshgrid(lats, lons, indexing='ij')
+        
+        # Initialize geographic features: [lat, lon, elevation, land_sea_mask]
+        geo_features = np.zeros((4, height, width), dtype=np.float32)
+        
+        # Latitude and longitude (normalized to [-1, 1])
+        geo_features[0] = (lat_grid - lat_grid.mean()) / lat_grid.std()
+        geo_features[1] = (lon_grid - lon_grid.mean()) / lon_grid.std()
+        
+        # Try to get elevation and land-sea mask if available
+        if 'geopotential_at_surface' in self.ds.data_vars:
+            elevation = self.ds['geopotential_at_surface'].isel(time=0).values / 9.81  # Convert to meters
+            geo_features[2] = (elevation - elevation.mean()) / elevation.std()
+        
+        if 'land_sea_mask' in self.ds.data_vars:
+            land_sea = self.ds['land_sea_mask'].isel(time=0).values
+            geo_features[3] = land_sea
+        
+        return torch.tensor(geo_features, dtype=torch.float32)
+    
+    def _compute_normalization_stats(self) -> Dict[str, Tuple[float, float]]:
+        """Compute mean and std for each variable using a subset of data"""
+        print("Computing normalization statistics...")
+        
+        norm_stats = {}
+        
+        # Use every 100th time step to compute stats (for efficiency)
+        sample_indices = np.arange(0, len(self.ds.time), 100)
+        
+        for var in self.variables:
+            if var in self.ds.data_vars:
+                # Load a subset of data
+                sample_data = self.ds[var].isel(time=sample_indices).load()
+                
+                # Compute statistics
+                mean_val = float(sample_data.mean().values)
+                std_val = float(sample_data.std().values)
+                
+                # Avoid division by zero
+                if std_val < 1e-8:
+                    std_val = 1.0
+                
+                norm_stats[var] = (mean_val, std_val)
+                print(f"{var}: mean={mean_val:.4f}, std={std_val:.4f}")
+        
+        return norm_stats
+    
+    def __len__(self) -> int:
+        """Return number of valid sequences"""
+        return len(self.time_indices)
+    
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get a single training sample
+        
+        Args:
+            idx: Index of the sample
+            
+        Returns:
+            input_seq: (seq_len, vars, lat, lon) - Input meteorological sequence
+            target_seq: (forecast_horizon, lat, lon) - Target precipitation
+            geo_features: (4, lat, lon) - Geographic features
+        """
+        # Get the actual time index
+        time_idx = self.time_indices[idx]
+        
+        # Create input sequence
+        input_slice = self.ds.isel(
+            time=slice(time_idx - self.sequence_length, time_idx)
+        ).load()
+        
+        # Create target sequence (precipitation only)
+        target_slice = self.ds['total_precipitation_6hr'].isel(
+            time=slice(time_idx, time_idx + self.forecast_horizon)
+        ).load()
+        
+        # Convert to tensors
+        input_tensor = self._xarray_to_tensor(input_slice, normalize=True)
+        target_tensor = self._xarray_to_tensor(target_slice, normalize=False, single_var=True)
+        
+        return input_tensor, target_tensor, self.geo_features
+    
+    def _xarray_to_tensor(self, 
+                         data: xr.Dataset, 
+                         normalize: bool = True, 
+                         single_var: bool = False) -> torch.Tensor:
+        """Convert xarray data to PyTorch tensor"""
+        
+        if single_var:
+            # Single variable (e.g., precipitation target)
+            tensor_data = torch.tensor(data.values, dtype=torch.float32)
+        else:
+            # Multiple variables - stack along variable dimension
+            var_arrays = []
+            for var in self.variables:
+                if var in data.data_vars:
+                    var_data = data[var].values
+                    
+                    # Handle different dimensionalities
+                    if var_data.ndim == 2:  # (lat, lon) - single time step
+                        var_data = var_data[None, ...]  # Add time dimension
+                    elif var_data.ndim == 4:  # (time, level, lat, lon) - multi-level
+                        # Average over pressure levels for simplicity
+                        var_data = np.mean(var_data, axis=1)
+                    
+                    # Normalize if requested
+                    if normalize and self.normalize and var in self.norm_stats:
+                        mean_val, std_val = self.norm_stats[var]
+                        var_data = (var_data - mean_val) / std_val
+                    
+                    var_arrays.append(var_data)
+            
+            # Stack variables: (time, vars, lat, lon)
+            tensor_data = torch.tensor(np.stack(var_arrays, axis=1), dtype=torch.float32)
+        
+        return tensor_data

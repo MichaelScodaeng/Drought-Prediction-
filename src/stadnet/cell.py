@@ -49,7 +49,7 @@ class STADCell(nn.Module):
         self.diag_link = nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1, bias=False)
 
         # LayerNorm after gate combination (H, W must be fixed or dynamically set)
-        self.norm_gates = nn.LayerNorm([5 * hidden_channels, 32, 32])  # Modify H, W if needed
+        self.norm_gates = nn.LayerNorm([5 * hidden_channels, 29, 16])  # Modify H, W if needed
 
         # Spatial attention: learn where to focus in x_t
         self.attn = nn.Sequential(
