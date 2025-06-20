@@ -113,7 +113,8 @@ class CrossMemoryAttention(nn.Module):
             'spatiotemporal': nn.Conv2d(input_dim, input_dim // 4, 1)
         })
         
-        self.attention_weights = nn.Conv2d(input_dim, num_memory_types, 1)
+        self.attention_weights = nn.Conv2d((input_dim // 4) * (num_memory_types - 1), num_memory_types - 1, 1)
+
         
     def forward(self, memory_states: Dict[str, torch.Tensor], 
                 current_memory_type: str) -> torch.Tensor:
