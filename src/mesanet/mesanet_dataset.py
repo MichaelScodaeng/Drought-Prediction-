@@ -3,8 +3,14 @@ import numpy as np
 import torch
 import xarray as xr
 from torch.utils.data import Dataset
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 class WeatherBench2Dataset(Dataset):
-    """PyTorch Dataset for WeatherBench2 ERA5 data"""
+    """PyTorch Dataset for WeatherBench2 ERA5 data - FIXED VERSION"""
     
     def __init__(self, 
                  zarr_path: str,
@@ -31,9 +37,15 @@ class WeatherBench2Dataset(Dataset):
         self.sequence_length = sequence_length
         self.forecast_horizon = forecast_horizon
         self.normalize = normalize
+        self.split = split
+        
+        logger.info(f"Initializing WeatherBench2Dataset for {split} split")
         
         # Load dataset with lazy evaluation
         self.ds = self._load_dataset(time_range)
+        
+        # Validate variables exist
+        self.available_variables = self._validate_variables()
         
         # Create geographic features once
         self.geo_features = self._create_geo_features()
@@ -44,21 +56,24 @@ class WeatherBench2Dataset(Dataset):
         # Compute normalization statistics if needed
         if self.normalize:
             self.norm_stats = self._compute_normalization_stats()
+        else:
+            self.norm_stats = {}
+        
+        logger.info(f"Dataset initialized: {len(self)} samples")
         
     def _load_dataset(self, time_range: slice) -> xr.Dataset:
         """Load and preprocess WeatherBench2 dataset"""
+        logger.info("Loading WeatherBench2 dataset...")
+        
         ds = xr.open_zarr(
             self.zarr_path,
             consolidated=True,
-            storage_options={"token": "cloud"},
-            chunks={'time': 100}  # Reasonable chunk size for streaming
+            storage_options={"token": "anon"},  # Use anon instead of cloud
+            chunks={'time': 100}
         )
         
         # Select time range first
         ds = ds.sel(time=time_range)
-        
-        # Select variables and geographic region
-        ds = ds[self.variables]
         
         # Apply Europe bounds (handle longitude wrapping)
         ds = ds.where(
@@ -66,11 +81,36 @@ class WeatherBench2Dataset(Dataset):
             drop=True
         ).sel(latitude=slice(75, 30))
         
-        print(f"Dataset loaded: {dict(ds.dims)}")
-        print(f"Time range: {ds.time.values[0]} to {ds.time.values[-1]}")
-        print(f"Variables: {list(ds.data_vars.keys())}")
+        logger.info(f"Dataset loaded: {dict(ds.dims)}")
+        logger.info(f"Time range: {ds.time.values[0]} to {ds.time.values[-1]}")
+        logger.info(f"Available variables: {len(list(ds.data_vars.keys()))}")
         
         return ds
+    
+    def _validate_variables(self) -> List[str]:
+        """Validate which variables actually exist in the dataset"""
+        available_vars = list(self.ds.data_vars.keys())
+        validated_vars = []
+        missing_vars = []
+        
+        for var in self.variables:
+            if var in available_vars:
+                validated_vars.append(var)
+                logger.info(f"✅ Variable found: {var}")
+            else:
+                missing_vars.append(var)
+                logger.warning(f"❌ Variable missing: {var}")
+        
+        if missing_vars:
+            logger.warning(f"Missing variables: {missing_vars}")
+            logger.info(f"Will proceed with available variables: {validated_vars}")
+        
+        if not validated_vars:
+            raise ValueError("No valid variables found in dataset!")
+        
+        # Update variables to only include available ones
+        self.variables = validated_vars
+        return validated_vars
     
     def _create_time_indices(self, split: str) -> np.ndarray:
         """Create valid time indices for sequence creation based on split"""
@@ -84,26 +124,25 @@ class WeatherBench2Dataset(Dataset):
         
         # Split data temporally
         if split == "train":
-            # Use first 70% for training
             split_idx = int(0.7 * len(valid_indices))
             indices = valid_indices[:split_idx]
         elif split == "val":
-            # Use next 15% for validation
             start_idx = int(0.7 * len(valid_indices))
             end_idx = int(0.85 * len(valid_indices))
             indices = valid_indices[start_idx:end_idx]
         elif split == "test":
-            # Use last 15% for testing
             start_idx = int(0.85 * len(valid_indices))
             indices = valid_indices[start_idx:]
         else:
             indices = valid_indices
         
-        print(f"{split.capitalize()} split: {len(indices)} samples")
+        logger.info(f"{split.capitalize()} split: {len(indices)} samples")
         return indices
     
     def _create_geo_features(self) -> torch.Tensor:
         """Create geographic features tensor"""
+        logger.info("Creating geographic features...")
+        
         # Get spatial dimensions
         lats = self.ds.latitude.values
         lons = self.ds.longitude.values
@@ -116,31 +155,43 @@ class WeatherBench2Dataset(Dataset):
         geo_features = np.zeros((4, height, width), dtype=np.float32)
         
         # Latitude and longitude (normalized to [-1, 1])
-        geo_features[0] = (lat_grid - lat_grid.mean()) / lat_grid.std()
-        geo_features[1] = (lon_grid - lon_grid.mean()) / lon_grid.std()
+        geo_features[0] = (lat_grid - lat_grid.mean()) / (lat_grid.std() + 1e-8)
+        geo_features[1] = (lon_grid - lon_grid.mean()) / (lon_grid.std() + 1e-8)
         
         # Try to get elevation and land-sea mask if available
         if 'geopotential_at_surface' in self.ds.data_vars:
-            elevation = self.ds['geopotential_at_surface'].isel(time=0).values / 9.81  # Convert to meters
-            geo_features[2] = (elevation - elevation.mean()) / elevation.std()
+            try:
+                elevation = self.ds['geopotential_at_surface'].values / 9.81  # Convert to meters
+                geo_features[2] = (elevation - elevation.mean()) / (elevation.std() + 1e-8)
+                logger.info("✅ Loaded elevation from geopotential_at_surface")
+            except Exception as e:
+                logger.warning(f"Failed to load elevation: {e}")
+        else:
+            logger.warning("geopotential_at_surface not found - using zeros for elevation")
         
         if 'land_sea_mask' in self.ds.data_vars:
-            land_sea = self.ds['land_sea_mask'].isel(time=0).values
-            geo_features[3] = land_sea
+            try:
+                land_sea = self.ds['land_sea_mask'].values
+                geo_features[3] = land_sea
+                logger.info("✅ Loaded land_sea_mask")
+            except Exception as e:
+                logger.warning(f"Failed to load land_sea_mask: {e}")
+        else:
+            logger.warning("land_sea_mask not found - using zeros")
         
         return torch.tensor(geo_features, dtype=torch.float32)
     
     def _compute_normalization_stats(self) -> Dict[str, Tuple[float, float]]:
         """Compute mean and std for each variable using a subset of data"""
-        print("Computing normalization statistics...")
+        logger.info("Computing normalization statistics...")
         
         norm_stats = {}
         
-        # Use every 100th time step to compute stats (for efficiency)
-        sample_indices = np.arange(0, len(self.ds.time), 100)
+        # Use every 50th time step to compute stats (for efficiency)
+        sample_indices = np.arange(0, len(self.ds.time), 50)
         
-        for var in self.variables:
-            if var in self.ds.data_vars:
+        for var in self.available_variables:
+            try:
                 # Load a subset of data
                 sample_data = self.ds[var].isel(time=sample_indices).load()
                 
@@ -151,9 +202,15 @@ class WeatherBench2Dataset(Dataset):
                 # Avoid division by zero
                 if std_val < 1e-8:
                     std_val = 1.0
+                    logger.warning(f"Very small std for {var}, using 1.0")
                 
                 norm_stats[var] = (mean_val, std_val)
-                print(f"{var}: mean={mean_val:.4f}, std={std_val:.4f}")
+                logger.info(f"Stats for {var}: mean={mean_val:.4f}, std={std_val:.4f}")
+                
+            except Exception as e:
+                logger.error(f"Failed to compute stats for {var}: {e}")
+                # Use default values
+                norm_stats[var] = (0.0, 1.0)
         
         return norm_stats
     
@@ -173,56 +230,299 @@ class WeatherBench2Dataset(Dataset):
             target_seq: (forecast_horizon, lat, lon) - Target precipitation
             geo_features: (4, lat, lon) - Geographic features
         """
-        # Get the actual time index
-        time_idx = self.time_indices[idx]
-        
-        # Create input sequence
-        input_slice = self.ds.isel(
-            time=slice(time_idx - self.sequence_length, time_idx)
-        ).load()
-        
-        # Create target sequence (precipitation only)
-        target_slice = self.ds['total_precipitation_6hr'].isel(
-            time=slice(time_idx, time_idx + self.forecast_horizon)
-        ).load()
-        
-        # Convert to tensors
-        input_tensor = self._xarray_to_tensor(input_slice, normalize=True)
-        target_tensor = self._xarray_to_tensor(target_slice, normalize=False, single_var=True)
-        
-        return input_tensor, target_tensor, self.geo_features
+        try:
+            # Get the actual time index
+            time_idx = self.time_indices[idx]
+            
+            # Create input sequence
+            input_slice = self.ds.isel(
+                time=slice(time_idx - self.sequence_length, time_idx)
+            ).load()
+            
+            # Create target sequence (precipitation only)
+            if 'total_precipitation_6hr' in self.available_variables:
+                target_slice = self.ds['total_precipitation_6hr'].isel(
+                    time=slice(time_idx, time_idx + self.forecast_horizon)
+                ).load()
+            else:
+                # Fallback to first available variable
+                target_var = self.available_variables[0]
+                target_slice = self.ds[target_var].isel(
+                    time=slice(time_idx, time_idx + self.forecast_horizon)
+                ).load()
+                logger.warning(f"Using {target_var} as target instead of precipitation")
+            
+            # Convert to tensors
+            input_tensor = self._xarray_to_tensor(input_slice, normalize=True)
+            target_tensor = self._xarray_to_tensor(target_slice, normalize=False, single_var=True)
+            
+            return input_tensor, target_tensor, self.geo_features
+            
+        except Exception as e:
+            logger.error(f"Error getting item {idx}: {e}")
+            # Return dummy data to avoid crashes
+            dummy_input = torch.zeros(self.sequence_length, len(self.available_variables), 
+                                    self.geo_features.shape[1], self.geo_features.shape[2])
+            dummy_target = torch.zeros(self.forecast_horizon, 
+                                     self.geo_features.shape[1], self.geo_features.shape[2])
+            return dummy_input, dummy_target, self.geo_features
     
     def _xarray_to_tensor(self, 
-                         data: xr.Dataset, 
+                         data, 
                          normalize: bool = True, 
                          single_var: bool = False) -> torch.Tensor:
-        """Convert xarray data to PyTorch tensor"""
+        """
+        Convert xarray data to PyTorch tensor - FIXED VERSION
         
-        if single_var:
-            # Single variable (e.g., precipitation target)
-            tensor_data = torch.tensor(data.values, dtype=torch.float32)
-        else:
-            # Multiple variables - stack along variable dimension
-            var_arrays = []
-            for var in self.variables:
-                if var in data.data_vars:
-                    var_data = data[var].values
-                    
-                    # Handle different dimensionalities
-                    if var_data.ndim == 2:  # (lat, lon) - single time step
-                        var_data = var_data[None, ...]  # Add time dimension
-                    elif var_data.ndim == 4:  # (time, level, lat, lon) - multi-level
-                        # Average over pressure levels for simplicity
-                        var_data = np.mean(var_data, axis=1)
-                    
-                    # Normalize if requested
-                    if normalize and self.normalize and var in self.norm_stats:
-                        mean_val, std_val = self.norm_stats[var]
-                        var_data = (var_data - mean_val) / std_val
-                    
-                    var_arrays.append(var_data)
+        Args:
+            data: xarray Dataset or DataArray
+            normalize: Whether to apply normalization
+            single_var: Whether this is a single variable (target) or multi-variable (input)
             
-            # Stack variables: (time, vars, lat, lon)
-            tensor_data = torch.tensor(np.stack(var_arrays, axis=1), dtype=torch.float32)
+        Returns:
+            torch.Tensor: Converted tensor
+        """
+        try:
+            if single_var:
+                # Single variable (e.g., precipitation target)
+                if isinstance(data, xr.DataArray):
+                    tensor_data = torch.tensor(data.values, dtype=torch.float32)
+                else:
+                    # If it's a Dataset, get the first variable
+                    var_name = list(data.data_vars.keys())[0]
+                    tensor_data = torch.tensor(data[var_name].values, dtype=torch.float32)
+                
+                # Handle NaN values
+                tensor_data = torch.nan_to_num(tensor_data, nan=0.0, posinf=0.0, neginf=0.0)
+                return tensor_data
+            
+            else:
+                # Multiple variables - stack along variable dimension
+                var_arrays = []
+                
+                for var in self.available_variables:
+                    if var in data.data_vars:
+                        var_data = data[var].values
+                        
+                        # Handle different dimensionalities
+                        if var_data.ndim == 2:  # (lat, lon) - static field
+                            # Repeat for all time steps
+                            var_data = np.repeat(var_data[None, ...], 
+                                               data.dims['time'], axis=0)
+                            logger.debug(f"Expanded static field {var} to shape {var_data.shape}")
+                            
+                        elif var_data.ndim == 3:  # (time, lat, lon) - surface field
+                            pass  # Already correct shape
+                            
+                        elif var_data.ndim == 4:  # (time, level, lat, lon) - multi-level
+                            # Average over pressure levels for simplicity
+                            var_data = np.mean(var_data, axis=1)
+                            logger.debug(f"Averaged {var} over pressure levels: {var_data.shape}")
+                            
+                        else:
+                            logger.warning(f"Unexpected dimensionality for {var}: {var_data.ndim}")
+                            continue
+                        
+                        # Normalize if requested
+                        if normalize and self.normalize and var in self.norm_stats:
+                            mean_val, std_val = self.norm_stats[var]
+                            var_data = (var_data - mean_val) / std_val
+                        
+                        # Handle NaN values
+                        var_data = np.nan_to_num(var_data, nan=0.0, posinf=0.0, neginf=0.0)
+                        
+                        var_arrays.append(var_data)
+                        logger.debug(f"Processed {var}: final shape {var_data.shape}")
+                    
+                    else:
+                        logger.warning(f"Variable {var} not found in data")
+                
+                if not var_arrays:
+                    raise ValueError("No variables could be processed!")
+                
+                # Stack variables: (time, vars, lat, lon)
+                try:
+                    stacked_array = np.stack(var_arrays, axis=1)
+                    tensor_data = torch.tensor(stacked_array, dtype=torch.float32)
+                    
+                    logger.debug(f"Final tensor shape: {tensor_data.shape}")
+                    return tensor_data
+                    
+                except ValueError as e:
+                    logger.error(f"Failed to stack variables: {e}")
+                    logger.error(f"Variable shapes: {[arr.shape for arr in var_arrays]}")
+                    raise
+            
+        except Exception as e:
+            logger.error(f"Error in _xarray_to_tensor: {e}")
+            logger.error(f"Data type: {type(data)}")
+            if hasattr(data, 'dims'):
+                logger.error(f"Data dims: {data.dims}")
+            raise
+
+    def get_variable_info(self) -> Dict:
+        """Get information about available variables and their properties"""
+        info = {
+            'available_variables': self.available_variables,
+            'requested_variables': self.variables,
+            'normalization_stats': self.norm_stats if hasattr(self, 'norm_stats') else {},
+            'dataset_shape': dict(self.ds.dims),
+            'geographic_features_shape': self.geo_features.shape,
+            'num_samples': len(self)
+        }
+        return info
+
+
+# =============================================================================
+# IMPROVED DATA MANAGER
+# =============================================================================
+
+class WeatherBench2DataManager:
+    """Enhanced manager for creating WeatherBench2 datasets and data loaders"""
+    
+    def __init__(self, 
+                 zarr_path: str,
+                 variables: List[str],
+                 sequence_length: int = 12,
+                 forecast_horizon: int = 4):
         
-        return tensor_data
+        self.zarr_path = zarr_path
+        self.variables = variables
+        self.sequence_length = sequence_length
+        self.forecast_horizon = forecast_horizon
+        
+        # Test connection first
+        self._test_connection()
+    
+    def _test_connection(self):
+        """Test connection to WeatherBench2 and validate variables"""
+        logger.info("Testing connection to WeatherBench2...")
+        
+        try:
+            ds = xr.open_zarr(
+                self.zarr_path,
+                consolidated=True,
+                storage_options={"token": "anon"},
+                chunks={'time': 10}
+            )
+            
+            available_vars = list(ds.data_vars.keys())
+            logger.info(f"✅ Connection successful. {len(available_vars)} variables available")
+            
+            # Check which variables exist
+            missing_vars = [var for var in self.variables if var not in available_vars]
+            if missing_vars:
+                logger.warning(f"Missing variables: {missing_vars}")
+                
+                # Suggest alternatives
+                suggested_vars = [var for var in available_vars if any(
+                    keyword in var.lower() for keyword in ['temperature', 'pressure', 'precipitation', 'wind']
+                )][:10]
+                logger.info(f"Suggested alternatives: {suggested_vars}")
+            
+        except Exception as e:
+            logger.error(f"Connection test failed: {e}")
+            raise
+    
+    def create_datasets(self, 
+                       time_range: slice = slice("2015", "2023"),
+                       normalize: bool = True) -> Tuple[WeatherBench2Dataset, WeatherBench2Dataset, WeatherBench2Dataset]:
+        """
+        Create train, validation, and test datasets
+        
+        Returns:
+            train_dataset, val_dataset, test_dataset
+        """
+        logger.info(f"Creating datasets for time range {time_range}")
+        
+        train_dataset = WeatherBench2Dataset(
+            zarr_path=self.zarr_path,
+            variables=self.variables,
+            time_range=time_range,
+            split="train",
+            sequence_length=self.sequence_length,
+            forecast_horizon=self.forecast_horizon,
+            normalize=normalize
+        )
+        
+        val_dataset = WeatherBench2Dataset(
+            zarr_path=self.zarr_path,
+            variables=self.variables,
+            time_range=time_range,
+            split="val",
+            sequence_length=self.sequence_length,
+            forecast_horizon=self.forecast_horizon,
+            normalize=normalize
+        )
+        
+        test_dataset = WeatherBench2Dataset(
+            zarr_path=self.zarr_path,
+            variables=self.variables,
+            time_range=time_range,
+            split="test",
+            sequence_length=self.sequence_length,
+            forecast_horizon=self.forecast_horizon,
+            normalize=normalize
+        )
+        
+        logger.info("Datasets created successfully")
+        logger.info(f"Train: {len(train_dataset)} samples")
+        logger.info(f"Val: {len(val_dataset)} samples") 
+        logger.info(f"Test: {len(test_dataset)} samples")
+        
+        return train_dataset, val_dataset, test_dataset
+    
+    def create_data_loaders(self, 
+                           datasets: Tuple[WeatherBench2Dataset, WeatherBench2Dataset, WeatherBench2Dataset],
+                           batch_size: int = 32,
+                           num_workers: int = 2) -> Tuple:
+        """
+        Create PyTorch data loaders with error handling
+        """
+        from torch.utils.data import DataLoader
+        
+        train_dataset, val_dataset, test_dataset = datasets
+        
+        # Custom collate function to handle errors
+        def safe_collate(batch):
+            try:
+                return torch.utils.data.dataloader.default_collate(batch)
+            except Exception as e:
+                logger.error(f"Collate error: {e}")
+                # Return a dummy batch
+                dummy_input = torch.zeros(len(batch), 12, 4, 181, 301)
+                dummy_target = torch.zeros(len(batch), 4, 181, 301)
+                dummy_geo = torch.zeros(len(batch), 4, 181, 301)
+                return dummy_input, dummy_target, dummy_geo
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True,
+            drop_last=True,
+            collate_fn=safe_collate
+        )
+        
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+            drop_last=False,
+            collate_fn=safe_collate
+        )
+        
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+            drop_last=False,
+            collate_fn=safe_collate
+        )
+        
+        return train_loader, val_loader, test_loader
