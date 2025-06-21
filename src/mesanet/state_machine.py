@@ -448,7 +448,8 @@ class MemoryStateMachine(nn.Module):
         # Apply residual connection with current memory state
         integrated_memory = self.memory_projection(memory_features)
         updated_memory = 0.9 * memory_state + 0.1 * integrated_memory
-        del pooled, pooled_flat, global_attended, restored
-        torch.cuda.empty_cache()
+        if self.memory_type == "spatial" and state_idx == 2:
+            del pooled, pooled_flat, global_attended, restored
+            torch.cuda.empty_cache() # Clear cache for large tensors
         
         return updated_memory, new_state_probs
