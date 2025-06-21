@@ -1,12 +1,9 @@
-# MINIMAL FIXES FOR mesanet.py
-# Just add these small changes to your existing code
-
 from typing import Dict, Tuple, List
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
-from src.mesanet.state_machine import MemoryState, MemoryConfig
-from src.mesanet.state_machine import MemoryStateMachine
+from mesanet.state_machine_backup import MemoryState, MemoryConfig
+from mesanet.state_machine_backup import MemoryStateMachine
 from torch.nn import functional as F
 
 class MESANetLayer(nn.Module):
@@ -57,6 +54,19 @@ class MESANetLayer(nn.Module):
                 geo_features: torch.Tensor) -> Tuple[torch.Tensor, Dict, Dict, torch.Tensor]:
         """
         Forward pass through MESA layer implementing the true MESA-Net framework
+        
+        Args:
+            input_tensor: Input tensor (B, C, H, W)
+            memory_states: Dictionary of memory states for each type
+            state_probs: Dictionary of state probabilities
+            cross_layer_memory: Cross-layer memory from PredRNN++
+            geo_features: Geographic features (4, H, W) or (B, 4, H, W)
+            
+        Returns:
+            output: Layer output
+            updated_memory_states: Updated memory states
+            updated_state_probs: Updated state probabilities
+            updated_cross_layer_memory: Updated cross-layer memory
         """
         batch_size, channels, height, width = input_tensor.shape
         
@@ -172,10 +182,6 @@ class MESANetLayer(nn.Module):
         # Residual connection for stability
         updated_cross_layer_memory = 0.9 * cross_layer_memory + 0.1 * updated_cross_layer_memory
         
-        # 🔧 FIX #1: Small memory cleanup (ADD THIS LINE)
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
         return (
             integrated_output,
             updated_memory_states,
@@ -223,6 +229,15 @@ class MESANet(nn.Module):
                 forecast_steps: int = 4) -> Tuple[torch.Tensor, Dict]:
         """
         Forward pass through complete MESA-Net implementing the adaptive expert framework
+        
+        Args:
+            input_sequence: (B, T, C, H, W) - Input meteorological sequence
+            geo_features: (4, H, W) or (B, 4, H, W) - Geographic features
+            forecast_steps: Number of forecast time steps
+            
+        Returns:
+            forecast: (B, forecast_steps, H, W) - Precipitation forecast
+            states_history: Dictionary containing state evolution for interpretability
         """
         batch_size, seq_len, channels, height, width = input_sequence.shape
         
@@ -249,33 +264,22 @@ class MESANet(nn.Module):
             
             # Process through hierarchical MESA layers
             for layer_idx, mesa_layer in enumerate(self.mesa_layers):
-                # 🔧 FIX #2: Add gradient checkpointing for memory efficiency (OPTIONAL)
-                if self.training and hasattr(torch.utils, 'checkpoint'):
-                    layer_output, memory_states, state_probs, cross_layer_memories[layer_idx] = \
-                        torch.utils.checkpoint.checkpoint(
-                            mesa_layer, layer_input, memory_states, state_probs, 
-                            cross_layer_memories[layer_idx], geo_features,
-                            preserve_rng_state=False
-                        )
-                else:
-                    layer_output, memory_states, state_probs, cross_layer_memories[layer_idx] = mesa_layer(
-                        layer_input,
-                        memory_states,
-                        state_probs,
-                        cross_layer_memories[layer_idx],
-                        geo_features
-                    )
+                layer_output, memory_states, state_probs, cross_layer_memories[layer_idx] = mesa_layer(
+                    layer_input,
+                    memory_states,
+                    state_probs,
+                    cross_layer_memories[layer_idx],
+                    geo_features
+                )
                 layer_outputs.append(layer_output)
                 layer_input = layer_output
             
             last_layer_output = layer_outputs[-1]
             
-            # 🔧 FIX #3: More efficient state history tracking (REPLACE THESE LINES)
-            # Store states for interpretability analysis (only every 3rd timestep to save memory)
-            if t % 3 == 0 or t == seq_len - 1:  # Store every 3rd timestep + last timestep
-                states_history['memory_states'].append({k: v.clone() for k, v in memory_states.items()})
-                states_history['state_probs'].append({k: v.clone() for k, v in state_probs.items()})
-                states_history['layer_outputs'].append([output.clone() for output in layer_outputs])
+            # Store states for interpretability analysis
+            states_history['memory_states'].append({k: v.clone() for k, v in memory_states.items()})
+            states_history['state_probs'].append({k: v.clone() for k, v in state_probs.items()})
+            states_history['layer_outputs'].append([output.clone() for output in layer_outputs])
         
         # Generate autoregressive forecasts using learned adaptive behavior
         forecasts = []
@@ -293,30 +297,20 @@ class MESANet(nn.Module):
             # Continue adaptive processing for next forecast step
             layer_input = projected_forecast
             for layer_idx, mesa_layer in enumerate(self.mesa_layers):
-                # Use same checkpointing logic as above
-                if self.training and hasattr(torch.utils, 'checkpoint'):
-                    layer_output, memory_states, state_probs, cross_layer_memories[layer_idx] = \
-                        torch.utils.checkpoint.checkpoint(
-                            mesa_layer, layer_input, memory_states, state_probs, 
-                            cross_layer_memories[layer_idx], geo_features,
-                            preserve_rng_state=False
-                        )
-                else:
-                    layer_output, memory_states, state_probs, cross_layer_memories[layer_idx] = mesa_layer(
-                        layer_input,
-                        memory_states,
-                        state_probs,
-                        cross_layer_memories[layer_idx],
-                        geo_features
-                    )
+                layer_output, memory_states, state_probs, cross_layer_memories[layer_idx] = mesa_layer(
+                    layer_input,
+                    memory_states,
+                    state_probs,
+                    cross_layer_memories[layer_idx],
+                    geo_features
+                )
                 layer_input = layer_output
             
             current_state = layer_output
             
-            # Store forecast step states for analysis (only for last forecast step)
-            if step == forecast_steps - 1:
-                states_history['memory_states'].append({k: v.clone() for k, v in memory_states.items()})
-                states_history['state_probs'].append({k: v.clone() for k, v in state_probs.items()})
+            # Store forecast step states for analysis
+            states_history['memory_states'].append({k: v.clone() for k, v in memory_states.items()})
+            states_history['state_probs'].append({k: v.clone() for k, v in state_probs.items()})
         
         forecast_tensor = torch.stack(forecasts, dim=1)  # (B, forecast_steps, H, W)
         
@@ -392,22 +386,3 @@ class MESANet(nn.Module):
                 interpretations[f'{memory_type}_transition_points'] = torch.nonzero(state_changes).squeeze()
         
         return interpretations
-
-# 🔧 SUMMARY OF MINIMAL CHANGES:
-"""
-WHAT WAS ADDED (3 tiny changes):
-
-1. ONE LINE in MESANetLayer.forward():
-   if torch.cuda.is_available():
-       torch.cuda.empty_cache()
-
-2. GRADIENT CHECKPOINTING (optional, helps with memory):
-   if self.training and hasattr(torch.utils, 'checkpoint'):
-       layer_output, ... = torch.utils.checkpoint.checkpoint(mesa_layer, ...)
-
-3. EFFICIENT STATE TRACKING:
-   if t % 3 == 0 or t == seq_len - 1:  # Only store every 3rd timestep
-       states_history[...].append(...)
-
-THAT'S IT! Your original code structure is 100% preserved.
-"""
