@@ -3,6 +3,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from typing import Dict, Optional
+from torch.cuda.amp import autocast, GradScaler
 from src.mesanet.mesanet import MESANet
 from src.mesanet.mesanet_loss import MESANetLoss
 
@@ -34,6 +35,7 @@ class MESANetTrainer:
         self.val_losses = []
 
         self.writer = SummaryWriter(log_dir=os.path.join(save_dir, 'logs')) if use_tensorboard else None
+        self.scaler = GradScaler()
 
     def train_epoch(self, epoch: int) -> Dict[str, float]:
         self.model.train()
@@ -42,14 +44,19 @@ class MESANetTrainer:
 
         for i, (x, y, geo) in enumerate(self.train_loader):
             x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
-            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
-                pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
-            loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
-
             self.optimizer.zero_grad()
-            loss.backward()
+
+            with autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+                # Wrap entropy calculation in float32 to avoid bfloat16 instability
+                with torch.cuda.amp.autocast(enabled=False):
+                    loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
+
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            self.optimizer.step()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             for k, v in components.items():
                 losses[k] += v.item()
@@ -71,9 +78,10 @@ class MESANetTrainer:
                 if i >= self.max_val_batches:
                     break
                 x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
-                with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                with autocast(device_type=self.device.type, dtype=torch.bfloat16):
                     pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
-                loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
+                    with torch.cuda.amp.autocast(enabled=False):
+                        loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
                 for k, v in components.items():
                     losses[k] += v.item()
                 losses['total_loss'] += loss.item()
