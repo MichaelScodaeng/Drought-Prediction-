@@ -1,9 +1,9 @@
 import torch
 from torch.utils.data import DataLoader
 from typing import Dict
-from mesanet.mesanet import MESANet, MESANetLoss
-from mesanet.mesanet_dataset import WeatherBench2Dataset
-from mesanet.mesanet_datamanager import WeatherBench2DataManager
+from src.mesanet.mesanet import MESANet, MESANetLoss
+from src.mesanet.mesanet_dataset import WeatherBench2Dataset
+from src.mesanet.mesanet_datamanager import WeatherBench2DataManager
 
 class MESANetTrainer:
     """Training pipeline for MESA-Net"""
