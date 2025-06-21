@@ -42,7 +42,8 @@ class MESANetTrainer:
 
         for i, (x, y, geo) in enumerate(self.train_loader):
             x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
-            pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
             loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
 
             self.optimizer.zero_grad()
@@ -70,7 +71,8 @@ class MESANetTrainer:
                 if i >= self.max_val_batches:
                     break
                 x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
-                pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+                with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                    pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
                 loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
                 for k, v in components.items():
                     losses[k] += v.item()

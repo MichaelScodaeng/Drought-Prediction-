@@ -408,12 +408,19 @@ class MemoryStateMachine(nn.Module):
                 processed = global_attended.permute(0, 2, 1).view(B, C, H, W)'''
                 # Downsample spatially to reduce sequence length before attention
                 pooled = F.adaptive_avg_pool2d(processed, output_size=(16, 16))  # (B, C, 16, 16)
-                pooled_flat = pooled.view(B, C, -1).permute(0, 2, 1)  # (B, 256, C)
+                pooled_flat = pooled.flatten(2).transpose(1, 2)  # same as view+permute
 
-                # Apply multi-head attention
-                global_attended, _ = state_processor_dict['global_attention'](
-                    pooled_flat, pooled_flat, pooled_flat  # (B, 256, C)
-                )
+                try:
+                    with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                        global_attended, _ = state_processor_dict['global_attention'](
+                            pooled_flat, pooled_flat, pooled_flat
+                        )
+                except RuntimeError as e:
+                    if 'CUDA out of memory' in str(e):
+                        print("⚠️ Warning: Global attention failed, using average pooling fallback.")
+                        global_attended = pooled_flat.mean(dim=1, keepdim=True).expand(-1, pooled_flat.size(1), -1)
+                    else:
+                        raise e
 
                 # Restore shape and upsample back to original H×W
                 restored = global_attended.permute(0, 2, 1).view(B, C, 16, 16)
@@ -441,5 +448,7 @@ class MemoryStateMachine(nn.Module):
         # Apply residual connection with current memory state
         integrated_memory = self.memory_projection(memory_features)
         updated_memory = 0.9 * memory_state + 0.1 * integrated_memory
+        del pooled, pooled_flat, global_attended, restored
+        torch.cuda.empty_cache()
         
         return updated_memory, new_state_probs
