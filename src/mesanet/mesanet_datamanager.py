@@ -3,6 +3,11 @@ from typing import List, Tuple
 import torch
 from torch.utils.data import DataLoader
 import xarray as xr
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
