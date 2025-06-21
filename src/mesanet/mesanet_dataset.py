@@ -269,7 +269,7 @@ class WeatherBench2Dataset(Dataset):
                 field_tensor, 
                 size=(target_height, target_width), 
                 mode='bilinear', 
-                align_corners=False
+                align_corners=True 
             )
             
             # Remove batch/channel dimensions and convert back to numpy
@@ -394,7 +394,7 @@ class WeatherBench2Dataset(Dataset):
                     tensor.unsqueeze(1),  # Add channel dim: (time, 1, lat, lon)
                     size=(target_height, target_width),
                     mode='bilinear',
-                    align_corners=False
+                    align_corners=True
                 ).squeeze(1)  # Remove channel dim: (time, lat, lon)
                 
             elif tensor.dim() == 4:  # (time, vars, lat, lon)
@@ -402,7 +402,7 @@ class WeatherBench2Dataset(Dataset):
                     tensor,
                     size=(target_height, target_width),
                     mode='bilinear',
-                    align_corners=False
+                    align_corners=True
                 )
             else:
                 logger.error(f"Unexpected tensor dimensions: {tensor.shape}")

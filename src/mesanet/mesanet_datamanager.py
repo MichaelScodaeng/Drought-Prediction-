@@ -258,14 +258,14 @@ def validate_tensor_sizes(input_seq: torch.Tensor, target_seq: torch.Tensor, geo
                 geo_features.unsqueeze(0),
                 size=(target_height, target_width),
                 mode='bilinear',
-                align_corners=False
+                align_corners=True
             ).squeeze(0)
         elif geo_features.dim() == 4:  # (B, 4, H, W)
             geo_features = torch.nn.functional.interpolate(
                 geo_features,
                 size=(target_height, target_width),
                 mode='bilinear',
-                align_corners=False
+                align_corners=True
             )
     
     # Validate target sequence
@@ -275,7 +275,7 @@ def validate_tensor_sizes(input_seq: torch.Tensor, target_seq: torch.Tensor, geo
             target_seq.unsqueeze(1) if target_seq.dim() == 3 else target_seq,
             size=(target_height, target_width),
             mode='bilinear',
-            align_corners=False
+            align_corners=True
         )
         if target_seq.dim() == 4 and target_seq.shape[1] == 1:
             target_seq = target_seq.squeeze(1)
