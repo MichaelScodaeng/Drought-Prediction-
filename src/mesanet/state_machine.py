@@ -400,12 +400,25 @@ class MemoryStateMachine(nn.Module):
                 
                 # Apply global attention for global spatial state
                 B, C, H, W = processed.shape
-                processed_flat = processed.view(B, C, H*W).permute(0, 2, 1)  # (B, H*W, C)
+                '''processed_flat = processed.view(B, C, H*W).permute(0, 2, 1)  # (B, H*W, C)
                 
                 global_attended, _ = state_processor_dict['global_attention'](
                     processed_flat, processed_flat, processed_flat
                 )
-                processed = global_attended.permute(0, 2, 1).view(B, C, H, W)
+                processed = global_attended.permute(0, 2, 1).view(B, C, H, W)'''
+                # Downsample spatially to reduce sequence length before attention
+                pooled = F.adaptive_avg_pool2d(processed, output_size=(16, 16))  # (B, C, 16, 16)
+                pooled_flat = pooled.view(B, C, -1).permute(0, 2, 1)  # (B, 256, C)
+
+                # Apply multi-head attention
+                global_attended, _ = state_processor_dict['global_attention'](
+                    pooled_flat, pooled_flat, pooled_flat  # (B, 256, C)
+                )
+
+                # Restore shape and upsample back to original H×W
+                restored = global_attended.permute(0, 2, 1).view(B, C, 16, 16)
+                processed = F.interpolate(restored, size=(H, W), mode='bilinear', align_corners=False)
+
                 learning_rates.append(0.01)  # Standard rate for spatial
                 
             else:
