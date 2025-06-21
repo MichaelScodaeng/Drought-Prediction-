@@ -68,8 +68,7 @@ class WeatherBench2Dataset(Dataset):
         ds = xr.open_zarr(
             self.zarr_path,
             consolidated=True,
-            storage_options={"token": "anon"},  # Use anon instead of cloud
-            chunks={'time': 100}
+            storage_options={"token": "anon", "asynchronous": False}
         )
         
         # Select time range first
