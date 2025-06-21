@@ -359,6 +359,7 @@ class MemoryStateMachine(nn.Module):
                 # 🔧 REPLACED: Efficient "global attention" without memory explosion
                 B, C, H, W = processed.shape
                 downsampled = state_processor_dict['global_pool'](processed)
+                print("Before interpolate:", processed.shape)
                 upsampled = F.interpolate(downsampled, size=(H, W), mode='bilinear', align_corners=True)
                 processed = 0.5 * processed + 0.5 * upsampled  # Combine local and global
                 
