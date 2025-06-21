@@ -407,7 +407,7 @@ class MemoryStateMachine(nn.Module):
                 )
                 processed = global_attended.permute(0, 2, 1).view(B, C, H, W)'''
                 # Downsample spatially to reduce sequence length before attention
-                pooled = F.adaptive_avg_pool2d(processed, output_size=(8, 8))  # (B, C, 16, 16)
+                pooled = F.adaptive_avg_pool2d(processed, output_size=(16, 16))  # (B, C, 16, 16)
                 pooled_flat = pooled.flatten(2).transpose(1, 2)  # same as view+permute
 
                 try:
