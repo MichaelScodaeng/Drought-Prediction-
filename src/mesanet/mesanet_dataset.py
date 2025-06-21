@@ -74,14 +74,11 @@ class WeatherBench2Dataset(Dataset):
         
         # Apply Europe bounds (handle longitude wrapping)
         # Apply Europe bounds with consistent selection
-        europe_mask = (ds.longitude >= 335) | (ds.longitude <= 50.25)
+        europe_mask = (ds.longitude >= 335) | (ds.longitude <= 50)
         ds = ds.where(europe_mask, drop=True).sel(latitude=slice(75, 30))
 
         # Ensure consistent longitude selection
         target_lons = ds.longitude.values
-        if len(target_lons) == 302:
-            # Drop the last longitude point to get 301 consistently
-            ds = ds.isel(longitude=slice(0, 301))
         
         logger.info(f"Dataset loaded: {dict(ds.dims)}")
         logger.info(f"Time range: {ds.time.values[0]} to {ds.time.values[-1]}")
