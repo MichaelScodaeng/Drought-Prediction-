@@ -1,7 +1,8 @@
 import torch
 from torch.utils.data import DataLoader
 from typing import Dict
-from src.mesanet.mesanet import MESANet, MESANetLoss
+from src.mesanet.mesanet import MESANetLayer
+from src.mesanet.mesanet_loss import MESANetLoss
 from src.mesanet.mesanet_dataset import WeatherBench2Dataset
 from src.mesanet.mesanet_datamanager import WeatherBench2DataManager
 
