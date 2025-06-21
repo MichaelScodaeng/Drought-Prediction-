@@ -1,14 +1,12 @@
+import os
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from typing import Dict
-from src.mesanet.mesanet import MESANetLayer
+from typing import Dict, Optional
+from src.mesanet.mesanet import MESANet
 from src.mesanet.mesanet_loss import MESANetLoss
-from src.mesanet.mesanet_dataset import WeatherBench2Dataset
-from src.mesanet.mesanet_datamanager import WeatherBench2DataManager
 
 class MESANetTrainer:
-    """Training pipeline for MESA-Net"""
-    
     def __init__(self,
                  model: MESANet,
                  train_loader: DataLoader,
@@ -16,8 +14,11 @@ class MESANetTrainer:
                  loss_fn: MESANetLoss,
                  optimizer: torch.optim.Optimizer,
                  device: torch.device,
-                 save_dir: str = "./mesa_net_checkpoints"):
-        
+                 save_dir: str = "./mesa_net_checkpoints",
+                 max_val_batches: int = 20,
+                 print_every: int = 50,
+                 use_tensorboard: bool = True):
+
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -25,177 +26,121 @@ class MESANetTrainer:
         self.optimizer = optimizer
         self.device = device
         self.save_dir = save_dir
-        
-        # Training metrics tracking
+        self.max_val_batches = max_val_batches
+        self.print_every = print_every
+        os.makedirs(self.save_dir, exist_ok=True)
+
         self.train_losses = []
         self.val_losses = []
-        self.state_histories = []
-        
+
+        self.writer = SummaryWriter(log_dir=os.path.join(save_dir, 'logs')) if use_tensorboard else None
+
     def train_epoch(self, epoch: int) -> Dict[str, float]:
-        """Train for one epoch"""
         self.model.train()
-        epoch_losses = {
-            'prediction_loss': 0.0,
-            'state_entropy_loss': 0.0,
-            'transition_smooth_loss': 0.0,
-            'cross_memory_loss': 0.0,
-            'cross_layer_loss': 0.0,
-            'total_loss': 0.0
-        }
-        
+        losses = self._init_loss_dict()
         num_batches = 0
-        
-        for batch_idx, (input_seq, target_seq, geo_features) in enumerate(self.train_loader):
-            # Move data to device
-            input_seq = input_seq.to(self.device)
-            target_seq = target_seq.to(self.device)
-            geo_features = geo_features.to(self.device)
-            
-            # Forward pass
-            predictions, states_history = self.model(
-                input_seq, geo_features, forecast_steps=target_seq.size(1)
-            )
-            
-            # Compute loss
-            total_loss, loss_components = self.loss_fn(
-                predictions, target_seq, states_history, 
-                states_history['memory_states'][-1]
-            )
-            
-            # Backward pass
+
+        for i, (x, y, geo) in enumerate(self.train_loader):
+            x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
+            pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+            loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
+
             self.optimizer.zero_grad()
-            total_loss.backward()
-            
-            # Gradient clipping for stability
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            
             self.optimizer.step()
-            
-            # Accumulate losses
-            for key, value in loss_components.items():
-                epoch_losses[key] += value.item()
-            
+
+            for k, v in components.items():
+                losses[k] += v.item()
+            losses['total_loss'] += loss.item()
             num_batches += 1
-            
-            # Print progress
-            if batch_idx % 50 == 0:
-                print(f"Epoch {epoch}, Batch {batch_idx}/{len(self.train_loader)}, "
-                      f"Loss: {total_loss.item():.4f}")
-        
-        # Average losses over epoch
-        for key in epoch_losses:
-            epoch_losses[key] /= num_batches
-        
-        return epoch_losses
-    
+
+            if i % self.print_every == 0:
+                print(f"Epoch {epoch+1} Batch {i}/{len(self.train_loader)} Loss: {loss.item():.4f}")
+
+        return self._average_losses(losses, num_batches)
+
     def validate(self) -> Dict[str, float]:
-        """Validate model performance"""
         self.model.eval()
-        val_losses = {
-            'prediction_loss': 0.0,
-            'state_entropy_loss': 0.0,
-            'transition_smooth_loss': 0.0,
-            'cross_memory_loss': 0.0,
-            'cross_layer_loss': 0.0,
-            'total_loss': 0.0
-        }
-        
+        losses = self._init_loss_dict()
         num_batches = 0
-        
+
         with torch.no_grad():
-            for batch_idx, (input_seq, target_seq, geo_features) in enumerate(self.val_loader):
-                # Limit validation batches for faster validation
-                if batch_idx >= 20:
+            for i, (x, y, geo) in enumerate(self.val_loader):
+                if i >= self.max_val_batches:
                     break
-                    
-                input_seq = input_seq.to(self.device)
-                target_seq = target_seq.to(self.device)
-                geo_features = geo_features.to(self.device)
-                
-                predictions, states_history = self.model(
-                    input_seq, geo_features, forecast_steps=target_seq.size(1)
-                )
-                
-                total_loss, loss_components = self.loss_fn(
-                    predictions, target_seq, states_history,
-                    states_history['memory_states'][-1]
-                )
-                
-                for key, value in loss_components.items():
-                    val_losses[key] += value.item()
-                
+                x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
+                pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+                loss, components = self.loss_fn(pred, y, state_hist, state_hist['memory_states'][-1])
+                for k, v in components.items():
+                    losses[k] += v.item()
+                losses['total_loss'] += loss.item()
                 num_batches += 1
-        
-        # Average losses
-        for key in val_losses:
-            val_losses[key] /= num_batches if num_batches > 0 else 1
-        
-        return val_losses
-    
-    def train(self, num_epochs: int):
-        """Complete training loop"""
-        import os
-        os.makedirs(self.save_dir, exist_ok=True)
-        
-        best_val_loss = float('inf')
-        
+
+        return self._average_losses(losses, num_batches)
+
+    def train(self, num_epochs: int, early_stopping_patience: Optional[int] = 5):
+        best_val = float('inf')
+        patience = 0
+
         for epoch in range(num_epochs):
             print(f"\n=== Epoch {epoch + 1}/{num_epochs} ===")
-            
-            # Training
-            train_losses = self.train_epoch(epoch)
-            self.train_losses.append(train_losses)
-            
-            print(f"Train Loss: {train_losses['total_loss']:.4f}")
-            print(f"  Prediction: {train_losses['prediction_loss']:.4f}")
-            print(f"  State Entropy: {train_losses['state_entropy_loss']:.4f}")
-            print(f"  Transition Smooth: {train_losses['transition_smooth_loss']:.4f}")
-            
-            # Validation
-            val_losses = self.validate()
-            self.val_losses.append(val_losses)
-            
-            print(f"Val Loss: {val_losses['total_loss']:.4f}")
-            
-            # Save best model
-            if val_losses['total_loss'] < best_val_loss:
-                best_val_loss = val_losses['total_loss']
+            train_loss = self.train_epoch(epoch)
+            val_loss = self.validate()
+            self.train_losses.append(train_loss)
+            self.val_losses.append(val_loss)
+
+            self._log_epoch(epoch, train_loss, val_loss)
+
+            if val_loss['total_loss'] < best_val:
+                best_val = val_loss['total_loss']
+                patience = 0
                 self.save_checkpoint(epoch, is_best=True)
-                print(f"New best model saved! Val Loss: {best_val_loss:.4f}")
-            
-            # Save regular checkpoint
+                print(f"New best model saved! Val Loss: {best_val:.4f}")
+            else:
+                patience += 1
+                if patience >= early_stopping_patience:
+                    print("⏹️ Early stopping triggered.")
+                    break
+
             if (epoch + 1) % 10 == 0:
                 self.save_checkpoint(epoch)
-    
+
+            if torch.cuda.is_available():
+                print(f"GPU Peak Memory: {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
+                torch.cuda.reset_peak_memory_stats()
+
+        if self.writer:
+            self.writer.close()
+
     def save_checkpoint(self, epoch: int, is_best: bool = False):
-        """Save model checkpoint"""
-        import os
-        
-        checkpoint = {
+        path = os.path.join(self.save_dir, 'best_model.pth' if is_best else f'checkpoint_epoch_{epoch}.pth')
+        torch.save({
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'train_losses': self.train_losses,
             'val_losses': self.val_losses,
-        }
-        
-        if is_best:
-            path = os.path.join(self.save_dir, 'best_model.pth')
-        else:
-            path = os.path.join(self.save_dir, f'checkpoint_epoch_{epoch}.pth')
-        
-        torch.save(checkpoint, path)
+        }, path)
         print(f"Checkpoint saved: {path}")
-    
-    def load_checkpoint(self, checkpoint_path: str):
-        """Load model checkpoint"""
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.train_losses = checkpoint.get('train_losses', [])
-        self.val_losses = checkpoint.get('val_losses', [])
-        
-        epoch = checkpoint['epoch']
-        print(f"Checkpoint loaded from epoch {epoch}")
-        return epoch
+
+    def _init_loss_dict(self) -> Dict[str, float]:
+        return {
+            'prediction_loss': 0.0,
+            'state_entropy_loss': 0.0,
+            'transition_smooth_loss': 0.0,
+            'cross_memory_loss': 0.0,
+            'cross_layer_loss': 0.0,
+            'total_loss': 0.0
+        }
+
+    def _average_losses(self, losses: Dict[str, float], count: int) -> Dict[str, float]:
+        return {k: v / max(count, 1) for k, v in losses.items()}
+
+    def _log_epoch(self, epoch: int, train_loss: Dict[str, float], val_loss: Dict[str, float]):
+        print(f"Epoch {epoch+1} Results:")
+        for k in train_loss:
+            print(f"  {k:<22} Train: {train_loss[k]:.6f} | Val: {val_loss[k]:.6f}")
+            if self.writer:
+                self.writer.add_scalar(f"train/{k}", train_loss[k], epoch)
+                self.writer.add_scalar(f"val/{k}", val_loss[k], epoch)
