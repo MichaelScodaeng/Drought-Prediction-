@@ -231,6 +231,7 @@ class WeatherBench2Dataset(Dataset):
             geo_features: (4, lat, lon) - Geographic features
         """
         try:
+            print(f"[DEBUG] Loading sample index: {idx}")
             # Get the actual time index
             time_idx = self.time_indices[idx]
             
