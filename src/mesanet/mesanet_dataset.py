@@ -74,7 +74,7 @@ class WeatherBench2Dataset(Dataset):
         
         # Apply Europe bounds (handle longitude wrapping)
         # Apply Europe bounds with consistent selection
-        europe_mask = (ds.longitude >= 335) | (ds.longitude <= 50)
+        europe_mask = (ds.longitude >= 335) | (ds.longitude <= 50.25)
         ds = ds.where(europe_mask, drop=True).sel(latitude=slice(75, 30))
 
         # Ensure consistent longitude selection
