@@ -105,7 +105,7 @@ class CrossMemoryAttention(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.num_memory_types = num_memory_types
-        
+        self.output_projection = nn.Conv2d(input_dim // 4, input_dim, 1)
         self.memory_projection = nn.ModuleDict({
             'fast': nn.Conv2d(input_dim, input_dim // 4, 1),
             'slow': nn.Conv2d(input_dim, input_dim // 4, 1),
@@ -160,7 +160,7 @@ class CrossMemoryAttention(nn.Module):
             attended_context += weight * proj_mem
         
         # Project back to full dimensions
-        context = F.interpolate(attended_context, size=(self.input_dim, attended_context.shape[-2], attended_context.shape[-1]))
+        context = self.output_projection(attended_context)
         
         return context
 
