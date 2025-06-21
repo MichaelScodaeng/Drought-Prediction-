@@ -48,8 +48,10 @@ class MESANetTrainer:
 
             with autocast(device_type="cuda", dtype=torch.bfloat16):
                 pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+
             # Run loss in float32 for numerical stability
-            loss, components = self.loss_fn(pred.float(), y.float(), state_hist, state_hist['memory_states'][-1])
+            with torch.cuda.amp.autocast(enabled=False):
+                loss, components = self.loss_fn(pred.float(), y.float(), state_hist, state_hist['memory_states'][-1])
 
             self.scaler.scale(loss).backward()
             self.scaler.unscale_(self.optimizer)
@@ -79,8 +81,10 @@ class MESANetTrainer:
                 x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
                 with autocast(device_type="cuda", dtype=torch.bfloat16):
                     pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
+
                 # Run loss in float32 for numerical stability
-                loss, components = self.loss_fn(pred.float(), y.float(), state_hist, state_hist['memory_states'][-1])
+                with torch.cuda.amp.autocast(enabled=False):
+                    loss, components = self.loss_fn(pred.float(), y.float(), state_hist, state_hist['memory_states'][-1])
                 for k, v in components.items():
                     losses[k] += v.item()
                 losses['total_loss'] += loss.item()
