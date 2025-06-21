@@ -2,7 +2,7 @@ from typing import Dict, Tuple
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
-from mesanet.state_machine_backup import MemoryState, MemoryConfig, StateTransitionNetwork
+from mesanet.state_machine import MemoryState, MemoryConfig, StateTransitionNetwork
 class MESANetLoss(nn.Module):
     """Unified loss function for MESA-Net"""
     
