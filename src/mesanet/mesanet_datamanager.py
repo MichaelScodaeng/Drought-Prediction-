@@ -136,7 +136,7 @@ class WeatherBench2DataManager:
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
-            num_workers=num_workers,
+            num_workers=0,
             pin_memory=True,
             drop_last=True,
             collate_fn=safe_collate
@@ -146,7 +146,7 @@ class WeatherBench2DataManager:
             val_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=num_workers,
+            num_workers=0,
             pin_memory=True,
             drop_last=False,
             collate_fn=safe_collate
@@ -156,7 +156,7 @@ class WeatherBench2DataManager:
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=num_workers,
+            num_workers=0,
             pin_memory=True,
             drop_last=False,
             collate_fn=safe_collate
