@@ -46,7 +46,7 @@ class MESANetTrainer:
             x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
             self.optimizer.zero_grad()
 
-            with autocast(enabled=True, dtype=torch.bfloat16):
+            with autocast(enabled=True, dtype=torch.float16):
                 pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
 
             # Run loss in float32 for numerical stability
@@ -79,7 +79,7 @@ class MESANetTrainer:
                 if i >= self.max_val_batches:
                     break
                 x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
-                with autocast(enabled=True, dtype=torch.bfloat16):
+                with autocast(enabled=True, dtype=torch.float16):
                     pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
 
                 # Run loss in float32 for numerical stability
