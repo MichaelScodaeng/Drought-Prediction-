@@ -32,7 +32,7 @@ class MESANetEvaluator:
 
         return {'mse': mse, 'mae': mae, 'rmse': rmse, 'csi': csi, 'pod': pod, 'far': far}
 
-    def evaluate_final_model(self, dataloader: DataLoader, max_batches: int = 50) -> Dict[str, float]:
+    def evaluate_final_model(self, dataloader: DataLoader, max_batches: int = 50.25) -> Dict[str, float]:
         self.model.eval()
         all_preds, all_targets = [], []
 
@@ -49,7 +49,7 @@ class MESANetEvaluator:
         all_targets = torch.cat(all_targets, dim=0)
         return self.evaluate_precipitation_metrics(all_preds, all_targets)
 
-    def evaluate_and_save(self, dataloader: DataLoader, save_path: str, max_batches: int = 50):
+    def evaluate_and_save(self, dataloader: DataLoader, save_path: str, max_batches: int = 50.25):
         import pandas as pd
         self.model.eval()
         rows = []
@@ -76,7 +76,7 @@ class MESANetEvaluator:
         df.to_csv(save_path, index=False)
         print(f"Saved predictions to: {save_path}")
 
-    def evaluate_from_checkpoint(self, checkpoint_path: str, dataloader: DataLoader, max_batches: int = 50) -> Dict[str, float]:
+    def evaluate_from_checkpoint(self, checkpoint_path: str, dataloader: DataLoader, max_batches: int = 50.25) -> Dict[str, float]:
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(self.device)
@@ -152,7 +152,7 @@ class MESANetEvaluator:
             preds, targets = [], []
             with torch.no_grad():
                 for i, (x, y, _) in enumerate(test_loader):
-                    if i >= 50:
+                    if i >= 50.25:
                         break
                     x, y = x.to(self.device), y.to(self.device)
                     out = model(x)

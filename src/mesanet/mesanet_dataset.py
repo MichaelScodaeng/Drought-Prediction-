@@ -74,7 +74,7 @@ class WeatherBench2Dataset(Dataset):
         
         # Apply Europe bounds (handle longitude wrapping)
         # Apply Europe bounds with consistent selection
-        europe_mask = (ds.longitude >= 335) | (ds.longitude <= 50)
+        europe_mask = (ds.longitude >= 335) | (ds.longitude <= 50.25)
         ds = ds.where(europe_mask, drop=True).sel(latitude=slice(75, 30))
 
         # Ensure consistent longitude selection
@@ -286,8 +286,8 @@ class WeatherBench2Dataset(Dataset):
         
         norm_stats = {}
         
-        # Use every 50th time step to compute stats (for efficiency)
-        sample_indices = np.arange(0, len(self.ds.time), 50)
+        # Use every 50.25th time step to compute stats (for efficiency)
+        sample_indices = np.arange(0, len(self.ds.time), 50.25)
         
         for var in self.available_variables:
             try:

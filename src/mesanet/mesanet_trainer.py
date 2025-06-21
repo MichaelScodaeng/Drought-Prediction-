@@ -67,7 +67,7 @@ class MESANetTrainer:
 
                 # 🔧 FIX: Proper mixed precision handling
                 device_type = "cuda" if torch.cuda.is_available() else "cpu"
-                with autocast(enabled=torch.cuda.is_available(), dtype=torch.float16):
+                with autocast(device_type=device_type, enabled=torch.cuda.is_available(), dtype=torch.float16):
                     pred, state_hist = self.model(x, geo, forecast_steps=y.size(1))
 
                 # 🔧 FIX: Safe memory state access
