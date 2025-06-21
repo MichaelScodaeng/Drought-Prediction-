@@ -49,7 +49,7 @@ class WeatherBench2DataManager:
             # 🔧 FIX: Get actual spatial dimensions from the dataset
             # Apply Europe bounds to see actual output dimensions
             ds_europe = ds.where(
-                (ds.longitude >= 335) | (ds.longitude <= 50.25),
+                (ds.longitude >= 335) | (ds.longitude <= 50),
                 drop=True
             ).sel(latitude=slice(75, 30))
             
