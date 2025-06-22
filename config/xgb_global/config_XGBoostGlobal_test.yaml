@@ -17,8 +17,52 @@ data:
   # Define split points. Given data up to 2023-12-16:
   # Let's use ~1901-2018 for train, 2019-2020 for val, 2021-2023 for test
   # (Adjust these based on how much data you want for each set)
+  start_date: "1959-01-01"
+  end_date: "2023-01-01"
   train_end_date: "2017-12-31"
   validation_end_date: "2020-12-31"
+  lat_bounds: [75, 30]  # Latitude bounds for the region of interest
+  variables:  [
+    # TARGET VARIABLE
+    'total_precipitation_6hr',              # Our main target
+
+    # CORE ATMOSPHERIC VARIABLES
+    '2m_temperature',                       # Surface temperature
+    '2m_dewpoint_temperature',              # Surface moisture content
+    'surface_pressure',                     # Surface pressure
+    'mean_sea_level_pressure',              # Synoptic pressure patterns
+
+    # WIND FIELDS
+    '10m_u_component_of_wind',              # Surface wind U
+    '10m_v_component_of_wind',              # Surface wind V
+    '10m_wind_speed',                       # Surface wind magnitude
+    'u_component_of_wind',                  # Upper-level winds (averaged over pressure levels)
+    'v_component_of_wind',                  # Upper-level winds (averaged over pressure levels)
+
+    # MOISTURE & THERMODYNAMICS
+    'total_column_water_vapour',            # Atmospheric moisture content
+    'integrated_vapor_transport',           # Moisture transport
+    'boundary_layer_height',                # PBL structure
+    'specific_humidity',                    # Atmospheric humidity (averaged over pressure levels)
+
+    # CLOUDS & RADIATION
+    'total_cloud_cover',                    # Cloud coverage
+    'mean_surface_net_short_wave_radiation_flux',  # Solar heating
+    'mean_surface_latent_heat_flux',        # Evaporation
+    'mean_surface_sensible_heat_flux',      # Surface heating
+
+    # SURFACE CONDITIONS
+    'snow_depth',                           # Snow coverage
+    'sea_surface_temperature',              # SST for coastal areas
+    'volumetric_soil_water_layer_1',        # Surface soil moisture
+
+    # ATMOSPHERIC DYNAMICS
+    'mean_vertically_integrated_moisture_divergence',  # Moisture convergence
+    'eddy_kinetic_energy',                  # Turbulence measure
+    
+    #2D VARIABLES
+    'land_sea_mask',
+  ]
 
 feature_engineering:
   # How many past time steps to use as features for the target and predictors

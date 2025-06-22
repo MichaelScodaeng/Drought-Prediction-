@@ -35,8 +35,39 @@ def load_config(config_path="../config.yaml"):
         return DEFAULT_CONFIG
 
 # --- Data Loading and Basic Processing ---
+import xarray as xr
+import pandas as pd
 
 def load_and_prepare_data(config):
+    path = config["data"]["raw_data_path"]
+    if path.endswith(".zarr"):
+        print(f"Loading data from: {path}")
+        ds = xr.open_zarr(path, consolidated=True, storage_options={"token": "anon", "asynchronous": False})
+
+        # Safe bounds selection
+        ds = ds.sel(
+            time=slice("2022", "2023"),
+            latitude=slice(75, 30),
+                    )
+        ds = ds.where((ds.longitude >= 335) | (ds.longitude <= 50), drop=True)
+
+        # Select variables
+        ds = ds[config["data"]["variables"]]
+
+        # Convert to dataframe
+        df = ds.to_dataframe().reset_index()
+
+        # ✅ FIX: ensure time is datetime
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(df["time"])
+
+        # Drop NaNs introduced by Zarr slicing or empty areas
+        df = df.dropna()
+        print(f"Successfully loaded data from {path}. Shape: {df.shape}")
+        return df
+
+
+'''def load_and_prepare_data(config):
     """
     Loads the raw data, converts the time column to datetime,
     and sorts the data by time and location (if lat/lon exist).
@@ -80,7 +111,7 @@ def load_and_prepare_data(config):
         return None
     except Exception as e:
         print(f"An error occurred during data loading and preparation: {e}")
-        return None
+        return None'''
 
 # --- Data Splitting ---
 

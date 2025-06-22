@@ -8,7 +8,7 @@ paths:
   models_base_dir: "../../models_saved"
   output_base_dir: "../../run_outputs"
 data:
-  raw_data_path: "../../data/full.csv"
+  raw_data_path: "gs://weatherbench2/datasets/era5/1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr"
   time_column: "time"
   lat_column: "lat"
   lon_column: "lon"
