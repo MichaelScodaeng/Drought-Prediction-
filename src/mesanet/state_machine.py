@@ -79,11 +79,12 @@ class SpatialAttention(nn.Module):
         
         if focus_mode == 'extreme_gradients':
             # Simplified gradient computation
+            print("Extreme Gradient")
             grad_x = torch.abs(F.avg_pool2d(features, kernel_size=3, stride=1, padding=1) - features)
             grad_y = torch.abs(
-                        F.avg_pool2d(features.transpose(-1, -2), kernel_size=3, stride=1, padding=1)
-                        .transpose(-1, -2) - features
+                        F.avg_pool2d(features.transpose(-1, -2), kernel_size=3, stride=1, padding=1).transpose(-1, -2) - features
                     )
+            print("Gradients computed:", grad_x.shape, grad_y.shape)
             gradient_magnitude = (grad_x + grad_y).mean(dim=1, keepdim=True)
             attention_weights = attention_weights * (1 + gradient_magnitude)
         
