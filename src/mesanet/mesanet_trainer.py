@@ -1,5 +1,6 @@
 # MINIMAL FIXES for mesanet_trainer.py
 # Just replace the problematic methods with these fixed versions
+import traceback
 
 import os
 import torch
@@ -115,7 +116,7 @@ class MESANetTrainer:
             except Exception as e:
                 failed_batches += 1
                 print(f"❌ Error in batch {i}: {str(e)[:100]}...")
-                
+                traceback.print_exc()
                 # Clean up GPU memory after error
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
