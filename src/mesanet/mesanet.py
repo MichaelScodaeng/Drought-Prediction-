@@ -59,7 +59,15 @@ class MESANetLayer(nn.Module):
         Forward pass through MESA layer implementing the true MESA-Net framework
         """
         batch_size, channels, height, width = input_tensor.shape
-        
+        print("Input tensor shape:", input_tensor.shape)
+        if geo_features.shape[-2:] != (height, width):
+            geo_features = F.interpolate(
+                geo_features,
+                size=(height, width),
+                mode='bilinear',
+                align_corners=False
+            )
+            print("Kuay")
         # Handle geo_features shape - ensure it's (B, 4, H, W)
         if geo_features.dim() == 3:  # (4, H, W)
             geo_features = geo_features.unsqueeze(0).expand(batch_size, -1, -1, -1)
