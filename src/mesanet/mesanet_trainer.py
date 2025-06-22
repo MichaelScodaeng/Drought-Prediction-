@@ -59,14 +59,14 @@ class MESANetTrainer:
             try:
                 # 🔧 FIX: Safe batch unpacking
                 if len(batch_data) != 3:
-                    print(f"⚠️ Skipping batch {i}: unexpected format")
+                    #print(f"⚠️ Skipping batch {i}: unexpected format")
                     continue
                     
                 x, y, geo = batch_data
                 x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
                 self.optimizer.zero_grad()
-                print(f"🔄 Processing batch {i+1}/{len(self.train_loader)}...")
-                print("x,y,geo: ", x.shape, y.shape, geo.shape)
+                #print(f"🔄 Processing batch {i+1}/{len(self.train_loader)}...")
+                #print("x,y,geo: ", x.shape, y.shape, geo.shape)
 
                 # 🔧 FIX: Proper mixed precision handling
                 device_type = "cuda" if torch.cuda.is_available() else "cpu"
@@ -111,12 +111,12 @@ class MESANetTrainer:
                     # Memory usage
                     if torch.cuda.is_available():
                         memory_gb = torch.cuda.memory_allocated() / 1e9
-                        print(f"   GPU Memory: {memory_gb:.1f}GB")
+                        #print(f"   GPU Memory: {memory_gb:.1f}GB")
 
             except Exception as e:
                 failed_batches += 1
-                print(f"❌ Error in batch {i}: {str(e)[:100]}...")
-                traceback.print_exc()
+                #print(f"❌ Error in batch {i}: {str(e)[:100]}...")
+                traceback.#print_exc()
                 # Clean up GPU memory after error
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -125,8 +125,8 @@ class MESANetTrainer:
                 continue
 
         epoch_time = time.time() - epoch_start
-        print(f"✅ Epoch {epoch+1} completed: {successful_batches} successful, {failed_batches} failed batches")
-        print(f"   Total time: {epoch_time/60:.1f} minutes")
+        #print(f"✅ Epoch {epoch+1} completed: {successful_batches} successful, {failed_batches} failed batches")
+        #print(f"   Total time: {epoch_time/60:.1f} minutes")
 
         return self._average_losses(losses, num_batches)
 
@@ -136,7 +136,7 @@ class MESANetTrainer:
         losses = self._init_loss_dict()
         num_batches = 0
         
-        print(f"🔍 Starting validation ({self.max_val_batches} batches max)...")
+        #print(f"🔍 Starting validation ({self.max_val_batches} batches max)...")
         val_start = time.time()
 
         with torch.no_grad():
@@ -175,29 +175,29 @@ class MESANetTrainer:
                         print(f"   Val batch {i+1}")
 
                 except Exception as e:
-                    print(f"❌ Validation error in batch {i}: {str(e)[:50]}...")
+                    #print(f"❌ Validation error in batch {i}: {str(e)[:50]}...")
                     continue
 
         val_time = time.time() - val_start
-        print(f"✅ Validation completed in {val_time:.1f}s ({num_batches} batches)")
+        #print(f"✅ Validation completed in {val_time:.1f}s ({num_batches} batches)")
 
         return self._average_losses(losses, num_batches)
 
     def train(self, num_epochs: int, early_stopping_patience: Optional[int] = 5):
         """🔧 ENHANCED: Better training loop with state analysis"""
-        print(f"🚀 Starting MESA-Net Training")
-        print(f"   Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
-        print(f"   Device: {self.device}")
-        print(f"   Epochs: {num_epochs}")
+        #print(f"🚀 Starting MESA-Net Training")
+        #print(f"   Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
+        #print(f"   Device: {self.device}")
+        #print(f"   Epochs: {num_epochs}")
         
         best_val = float('inf')
         patience = 0
         start_time = time.time()
 
         for epoch in range(num_epochs):
-            print(f"\n{'='*60}")
-            print(f"📅 EPOCH {epoch + 1}/{num_epochs}")
-            print(f"{'='*60}")
+            #print(f"\n{'='*60}")
+            #print(f"📅 EPOCH {epoch + 1}/{num_epochs}")
+            #print(f"{'='*60}")
             
             try:
                 # Training
@@ -218,11 +218,11 @@ class MESANetTrainer:
                     best_val = val_loss['total_loss']
                     patience = 0
                     self.save_checkpoint(epoch, is_best=True)
-                    print(f"🎉 New best model saved! Val Loss: {best_val:.4f}")
+                    #print(f"🎉 New best model saved! Val Loss: {best_val:.4f}")
                 else:
                     patience += 1
                     if early_stopping_patience and patience >= early_stopping_patience:
-                        print(f"⏹️ Early stopping triggered after {patience} epochs without improvement")
+                        #print(f"⏹️ Early stopping triggered after {patience} epochs without improvement")
                         break
 
                 # Periodic checkpoint
@@ -232,17 +232,17 @@ class MESANetTrainer:
                 # Memory cleanup
                 if torch.cuda.is_available():
                     peak_memory = torch.cuda.max_memory_allocated() / 1e9
-                    print(f"🖥️ GPU Peak Memory: {peak_memory:.2f} GB")
+                    #print(f"🖥️ GPU Peak Memory: {peak_memory:.2f} GB")
                     torch.cuda.empty_cache()
                     torch.cuda.reset_peak_memory_stats()
 
             except Exception as e:
-                print(f"❌ Error in epoch {epoch + 1}: {e}")
-                print("Continuing to next epoch...")
+                #print(f"❌ Error in epoch {epoch + 1}: {e}")
+                #print("Continuing to next epoch...")
                 continue
 
         total_time = time.time() - start_time
-        print(f"\n🏁 Training completed in {total_time/3600:.1f} hours")
+        #print(f"\n🏁 Training completed in {total_time/3600:.1f} hours")
         
         if self.writer:
             self.writer.close()
@@ -283,10 +283,10 @@ class MESANetTrainer:
 
     def _log_epoch_enhanced(self, epoch: int, train_loss: Dict[str, float], val_loss: Dict[str, float]):
         """🔧 ENHANCED: Better epoch logging"""
-        print(f"\n📊 EPOCH {epoch+1} RESULTS:")
-        print("-" * 50)
+        #print(f"\n📊 EPOCH {epoch+1} RESULTS:")
+        #print("-" * 50)
         for k in train_loss:
-            print(f"{k:<22} | Train: {train_loss[k]:.6f} | Val: {val_loss[k]:.6f}")
+            #print(f"{k:<22} | Train: {train_loss[k]:.6f} | Val: {val_loss[k]:.6f}")
             
             # Log to tensorboard if available
             if self.writer:
@@ -295,9 +295,9 @@ class MESANetTrainer:
 
     # Keep your original _log_epoch method for compatibility
     def _log_epoch(self, epoch: int, train_loss: Dict[str, float], val_loss: Dict[str, float]):
-        print(f"Epoch {epoch+1} Results:")
+        #print(f"Epoch {epoch+1} Results:")
         for k in train_loss:
-            print(f"  {k:<22} Train: {train_loss[k]:.6f} | Val: {val_loss[k]:.6f}")
+            #print(f"  {k:<22} Train: {train_loss[k]:.6f} | Val: {val_loss[k]:.6f}")
             if self.writer:
                 self.writer.add_scalar(f"train/{k}", train_loss[k], epoch)
                 self.writer.add_scalar(f"val/{k}", val_loss[k], epoch)
