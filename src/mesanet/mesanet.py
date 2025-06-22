@@ -78,7 +78,7 @@ class MESANetLayer(nn.Module):
         geo_reshaped = geo_features.permute(0, 2, 3, 1).contiguous().view(-1, 4)
         geo_embedding = self.geo_embedding(geo_reshaped)  # (B*H*W, input_dim)
         geo_embedding = geo_embedding.view(batch_size, height, width, -1).permute(0, 3, 1, 2)
-        
+        print("geo embedding: ", geo_embedding.shape)
         # Apply geographic conditioning
         conditioned_input = input_tensor + geo_embedding
         
@@ -154,15 +154,20 @@ class MESANetLayer(nn.Module):
         ], dim=1)
         
         integrated_output = self.memory_integration(combined_memory)
+        print("integrated_output", integrated_output.shape)
         
         # Cross-layer memory update (PredRNN++) - proper spatial handling
         # Project to hidden dimension
         projected_output = self.cross_layer_projection(integrated_output)
         projected_cross_memory = self.cross_layer_projection(cross_layer_memory)
+        print("projected_output", projected_output.shape)
+        print("projected_cross_memory", projected_cross_memory.shape)
         
         # Average pool for LSTM processing
         pooled_output = F.adaptive_avg_pool2d(projected_output, (1, 1)).squeeze(-1).squeeze(-1)
         pooled_cross_memory = F.adaptive_avg_pool2d(projected_cross_memory, (1, 1)).squeeze(-1).squeeze(-1)
+        print("pooled_output", pooled_output.shape)
+        print("pooled_cross_memory", pooled_cross_memory.shape)
         
         # LSTM cell with proper hidden state management
         device = input_tensor.device
@@ -176,9 +181,12 @@ class MESANetLayer(nn.Module):
         # Project back to spatial dimensions
         cross_layer_features = new_hidden.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, height, width)
         updated_cross_layer_memory = self.cross_layer_back_projection(cross_layer_features)
+        print("updated_cross_layer_memory", updated_cross_layer_memory.shape)
+
         
         # Residual connection for stability
         updated_cross_layer_memory = 0.9 * cross_layer_memory + 0.1 * updated_cross_layer_memory
+        print("updated_cross_layer_memory", updated_cross_layer_memory.shape)
         
         # 🔧 FIX #1: Small memory cleanup (ADD THIS LINE)
         if torch.cuda.is_available():
@@ -238,6 +246,11 @@ class MESANet(nn.Module):
         memory_states = self._initialize_memory_states(batch_size, height, width)
         state_probs = self._initialize_state_probs(batch_size)
         cross_layer_memories = self._initialize_cross_layer_memory(batch_size, height, width)
+        print("Input sequence shape:", input_sequence.shape)
+        print("Geo features shape:", geo_features.shape)
+        print("Memory states initialized:", memory_states.keys())
+        print("State probabilities initialized:", state_probs.keys())
+        print("Cross-layer memories initialized:", len(cross_layer_memories))
         
         # Track state evolution for interpretability analysis
         states_history = {
@@ -288,6 +301,7 @@ class MESANet(nn.Module):
         # Generate autoregressive forecasts using learned adaptive behavior
         forecasts = []
         current_state = last_layer_output
+        print("current_state ", current_state.shape)
         
         for step in range(forecast_steps):
             # Generate precipitation prediction
@@ -321,13 +335,15 @@ class MESANet(nn.Module):
             
             current_state = layer_output
             
+            print("current_state ", current_state.shape)
+            
             # Store forecast step states for analysis (only for last forecast step)
             if step == forecast_steps - 1:
                 states_history['memory_states'].append({k: v.clone() for k, v in memory_states.items()})
                 states_history['state_probs'].append({k: v.clone() for k, v in state_probs.items()})
         
         forecast_tensor = torch.stack(forecasts, dim=1)  # (B, forecast_steps, H, W)
-        
+        print("forecast_tensor ", forecast_tensor.shape)
         return forecast_tensor, states_history
     
     def _initialize_memory_states(self, batch_size: int, height: int, width: int) -> Dict[str, torch.Tensor]:

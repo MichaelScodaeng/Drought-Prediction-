@@ -64,6 +64,8 @@ class MESANetTrainer:
                 x, y, geo = batch_data
                 x, y, geo = x.to(self.device), y.to(self.device), geo.to(self.device)
                 self.optimizer.zero_grad()
+                print(f"🔄 Processing batch {i+1}/{len(self.train_loader)}...")
+                print("x,y,geo: ", x.shape, y.shape, geo.shape)
 
                 # 🔧 FIX: Proper mixed precision handling
                 device_type = "cuda" if torch.cuda.is_available() else "cpu"
