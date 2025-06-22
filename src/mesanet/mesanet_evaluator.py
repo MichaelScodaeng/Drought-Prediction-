@@ -74,13 +74,13 @@ class MESANetEvaluator:
         df = pd.DataFrame(rows)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         df.to_csv(save_path, index=False)
-        print(f"Saved predictions to: {save_path}")
+        #print(f"Saved predictions to: {save_path}")
 
     def evaluate_from_checkpoint(self, checkpoint_path: str, dataloader: DataLoader, max_batches: int = 50) -> Dict[str, float]:
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(self.device)
-        print(f"Loaded model from checkpoint: {checkpoint_path}")
+        #print(f"Loaded model from checkpoint: {checkpoint_path}")
         return self.evaluate_final_model(dataloader, max_batches=max_batches)
 
     def analyze_state_patterns(self, states_history: Dict) -> Dict[str, any]:
@@ -100,7 +100,7 @@ class MESANetEvaluator:
 
     def plot_state_evolution(self, analysis: Dict[str, any], memory_type: str):
         if f"{memory_type}_state_evolution" not in analysis:
-            print(f"Memory type '{memory_type}' not found in analysis.")
+            #print(f"Memory type '{memory_type}' not found in analysis.")
             return
         evolution = analysis[f"{memory_type}_state_evolution"]
         plt.figure(figsize=(10, 4))

@@ -79,12 +79,12 @@ class SpatialAttention(nn.Module):
         
         if focus_mode == 'extreme_gradients':
             # Simplified gradient computation
-            print("Extreme Gradient")
+            #print("Extreme Gradient")
             grad_x = torch.abs(F.avg_pool2d(features, kernel_size=3, stride=1, padding=1) - features)
             grad_y = torch.abs(
                         F.avg_pool2d(features.transpose(-1, -2), kernel_size=3, stride=1, padding=1).transpose(-1, -2) - features
                     )
-            print("Gradients computed:", grad_x.shape, grad_y.shape)
+            #print("Gradients computed:", grad_x.shape, grad_y.shape)
             gradient_magnitude = (grad_x + grad_y).mean(dim=1, keepdim=True)
             attention_weights = attention_weights * (1 + gradient_magnitude)
         
@@ -363,7 +363,7 @@ class MemoryStateMachine(nn.Module):
                 # 🔧 REPLACED: Efficient "global attention" without memory explosion
                 B, C, H, W = processed.shape
                 downsampled = state_processor_dict['global_pool'](processed)
-                print("Before interpolate:", processed.shape)
+                #print("Before interpolate:", processed.shape)
                 upsampled = F.interpolate(downsampled, size=(H, W), mode='bilinear', align_corners=True)
                 processed = 0.5 * processed + 0.5 * upsampled  # Combine local and global
                 
@@ -430,7 +430,7 @@ CRITICAL CHANGES MADE:
 - Added gradient checkpointing for memory efficiency
 """
 
-print("🔧 MESA-Net Quick Fix Ready!")
-print("📋 Replace the problematic classes in your state_machine.py")
-print("⚡ Expected: 20-50x performance improvement")
-print("🎯 Test with your existing training script - should work immediately!")
+#print("🔧 MESA-Net Quick Fix Ready!")
+#print("📋 Replace the problematic classes in your state_machine.py")
+#print("⚡ Expected: 20-50x performance improvement")
+#print("🎯 Test with your existing training script - should work immediately!")
